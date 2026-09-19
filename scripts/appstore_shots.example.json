@@ -1,0 +1,34 @@
+{
+  "shots": [
+    {
+      "id": "01_home",
+      "input": "home.png",
+      "headline": "Never Forget the People Who Matter",
+      "subtitle": "Capture moments, names, dates, and details in seconds."
+    },
+    {
+      "id": "02_people",
+      "input": "people.png",
+      "headline": "Rich Relationship Profiles, Automatically",
+      "subtitle": "Sessions become organized profiles with key details and memory cues."
+    },
+    {
+      "id": "03_calendar",
+      "input": "calendar.png",
+      "headline": "See Every Important Date at a Glance",
+      "subtitle": "Track conversations, events, and follow-ups on one smart calendar."
+    },
+    {
+      "id": "04_record",
+      "input": "record.png",
+      "headline": "Capture Interactions Instantly",
+      "subtitle": "Type or speak your notes and let Tabbe structure what matters."
+    },
+    {
+      "id": "05_ask",
+      "input": "ask.png",
+      "headline": "Ask Questions, Get Instant Memory Recall",
+      "subtitle": "Use AI to surface what someone said, when, and why it matters."
+    }
+  ]
+}

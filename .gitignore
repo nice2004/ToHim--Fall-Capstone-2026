@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+.DS_Store
+uploads/
+server/uploads/
+mobile/node_modules/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/dist/
+*.db
+*.sqlite
+*.sqlite3
+
