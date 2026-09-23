@@ -2,6 +2,17 @@
 
 A mobile application to help you keep track of your relationships and interactions with friends, family, and acquaintances.
 
+## Project Status
+
+This is a CS-195 capstone project. The mobile app (React Native/Expo) and backend
+(Node/Express + SQLite) are both functional end-to-end: recording a session,
+extracting people/details via the OpenAI API, browsing tracked people, and asking
+natural-language questions about past interactions all work locally. The project
+is currently in Alpha-stage development, with TestFlight distribution assets in
+progress (see [TESTFLIGHT_GUIDE.md](TESTFLIGHT_GUIDE.md)). To inspect or run the
+current artifact, follow the Setup instructions below to start the backend server
+and the Expo mobile app together.
+
 ## Features
 
 - **Session Recording**: Start a session and describe an interaction you just had
