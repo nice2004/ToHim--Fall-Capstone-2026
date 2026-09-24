@@ -58,8 +58,12 @@ code (verified: no matching schema, fields, or UI):
 
 - **Mobile**: React Native + Expo
 - **Backend**: Node.js + Express
-- **Database**: SQLite for local development; Postgres (Supabase) is supported
-  for production, with migration scripts under `server/scripts/`
+- **Database**: Postgres (Supabase) is the application's active data store —
+  every route (`sessions`, `persons`, `groups`, `calendar`, `auth`) reads and
+  writes through `server/postgres.js`. `server/database.js` (SQLite) still
+  initializes on server startup but is legacy/vestigial: no route reads from
+  or writes to it. Migration scripts that originally moved data from SQLite
+  to Supabase live under `server/scripts/`.
 - **AI**: OpenAI API for extracting structured data from prayer request text
   and for answering natural-language questions; a vector store
   (`server/services/vectorStore.js`, Pinecone) backs semantic search over notes
@@ -81,12 +85,14 @@ code (verified: no matching schema, fields, or UI):
    ```
 2. Create a `.env` file in the repository root:
    ```env
+   DATABASE_URL=your_postgres_supabase_connection_string_here
    OPENAI_API_KEY=your_openai_api_key_here
    JWT_SECRET=your_jwt_signing_secret_here
    PORT=3000
    ```
-   (`Database_URL` is also read if you want to point at a Postgres/Supabase
-   database instead of the default local SQLite file.)
+   `DATABASE_URL` is required — `server/postgres.js` exits immediately on
+   startup if it isn't set. There is no SQLite fallback for the app's actual
+   functionality.
 3. Start the backend:
    ```bash
    npm start
@@ -118,7 +124,7 @@ code (verified: no matching schema, fields, or UI):
 ## Project structure
 
 ```
-server/           Express backend (SQLite/Postgres, routes, AI service)
+server/           Express backend (Postgres/Supabase, routes, AI service)
 mobile/           Expo/React Native app (screens, components, services)
 docs/             Public support/privacy pages
 scripts/          App Store screenshot generation and other tooling
