@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Setting up Tabbe - Relationship Tracker"
+echo "🚀 Setting up ToHim - Prayer Tracker"
 echo ""
 
 # Check if Node.js is installed

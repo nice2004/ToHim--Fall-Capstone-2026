@@ -15,9 +15,9 @@ const openai = new OpenAI({
 /** Chat completions model (override with OPENAI_MODEL in .env) */
 const OPENAI_CHAT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-/** Shared instruction: outputs must not add facts beyond Tabbe-provided context */
+/** Shared instruction: outputs must not add facts beyond ToHim-provided context */
 const TABBE_DATA_ONLY_SYSTEM =
-  'You are Tabbe. You MUST answer using ONLY the user-provided context below (sessions, notes, transcripts, stored metadata, and vector chunks). Do NOT use the web, general knowledge, or assumptions about real people, places, or events. If something is not stated in the context, say you do not have that in Tabbe yet—do not guess or fill in. You may use minimal logic (e.g. comparing dates that already appear in the context to today\'s date) only when the user asks about timing and the context includes those dates.';
+  'You are ToHim. You MUST answer using ONLY the user-provided context below (sessions, notes, transcripts, stored metadata, and vector chunks). Do NOT use the web, general knowledge, or assumptions about real people, places, or events. If something is not stated in the context, say you do not have that in ToHim yet—do not guess or fill in. You may use minimal logic (e.g. comparing dates that already appear in the context to today\'s date) only when the user asks about timing and the context includes those dates.';
 
 // Helper function to create a timeout promise
 function createTimeoutPromise(ms, errorMessage) {
@@ -797,13 +797,13 @@ Return strict JSON:
 
     const prompt = `Today's date is ${today}.
 
-${context ? `Here is the ONLY information you may use (from Tabbe's database):\n\n${context}\n\n` : 'NO CONTEXT WAS PROVIDED — there is no Tabbe data to use.\n\n'}User query: "${query}"
+${context ? `Here is the ONLY information you may use (from ToHim's database):\n\n${context}\n\n` : 'NO CONTEXT WAS PROVIDED — there is no ToHim data to use.\n\n'}User query: "${query}"
 
 GROUNDING (non-negotiable):
 - Answer ONLY from the context above. Every factual claim must be traceable to a line in the context.
 - Do NOT invent people, relationships, events, dates, or details not written in the context.
 - Do NOT supplement with general knowledge about anyone named in the query (no biographies, no "typically", no outside facts).
-- If the context does not contain enough to answer, say clearly that Tabbe does not have that information saved yet and suggest recording a session or adding notes—not a guess.
+- If the context does not contain enough to answer, say clearly that ToHim does not have that information saved yet and suggest recording a session or adding notes—not a guess.
 
 Search through the context to answer the query. If the query asks about a specific detail, search only within the provided sessions and stored information.
 
@@ -832,7 +832,7 @@ IMPORTANT: When answering questions about dates:
 - Format dates in a clear, readable way (e.g., "January 15, 2025" or "Monday, January 15th")
 - When mentioning dates, be specific and accurate
 
-If the context has no session text and no stored information lines (only names or empty sections), say that there is nothing recorded in Tabbe yet for that question.
+If the context has no session text and no stored information lines (only names or empty sections), say that there is nothing recorded in ToHim yet for that question.
 
 If you have enough information in the context to answer, answer clearly. Otherwise say what is missing. Be conversational and friendly.`;
 
@@ -931,7 +931,7 @@ If you have enough information in the context to answer, answer clearly. Otherwi
     let context = '';
     let nonEmptyChunkCount = 0;
     if (chunksToUse && chunksToUse.length > 0) {
-      context += 'Here are the ONLY excerpts retrieved from Tabbe (vector index). Use nothing else:\n\n';
+      context += 'Here are the ONLY excerpts retrieved from ToHim (vector index). Use nothing else:\n\n';
       chunksToUse.forEach((match, index) => {
         const meta = match.metadata || {};
         const text = String(meta.text || meta.chunk_text || '').trim();
@@ -953,7 +953,7 @@ If you have enough information in the context to answer, answer clearly. Otherwi
     }
 
     if (nonEmptyChunkCount === 0) {
-      return "I don't have enough saved notes in Tabbe that match this question yet. Try recording a session or asking in a way that matches what you've already saved.";
+      return "I don't have enough saved notes in ToHim that match this question yet. Try recording a session or asking in a way that matches what you've already saved.";
     }
 
     const prompt = `Today's date is ${today}.
@@ -962,7 +962,7 @@ ${context}User query: "${query}"
 
 GROUNDING (non-negotiable):
 - Use ONLY the excerpts above. Do NOT use general world knowledge, the web, or assumptions about people or events.
-- Every factual statement must be supported by text in the excerpts. If it is not there, say Tabbe does not have that saved—do not guess.
+- Every factual statement must be supported by text in the excerpts. If it is not there, say ToHim does not have that saved—do not guess.
 - You may compare dates that appear in the excerpts to today's date only for questions like "soon" or "upcoming".
 
 CRITICAL:
@@ -988,7 +988,7 @@ Respond in a conversational, friendly tone.`;
       const textOut = typeof raw === 'string' ? raw.trim() : '';
       if (!textOut) {
         console.warn('[AIService] answerQueryFromChunks: empty model output after hydration');
-        return "Tabbe found related notes but couldn't turn them into an answer. Please try rephrasing your question.";
+        return "ToHim found related notes but couldn't turn them into an answer. Please try rephrasing your question.";
       }
       return textOut;
     } catch (error) {
@@ -1056,7 +1056,7 @@ User question: "${query}"
 
 GROUNDING (non-negotiable):
 - Use ONLY the sessions and stored information shown above for each person. Do NOT add facts from general knowledge, the web, or inference beyond what is written.
-- If you do not have information in the data for a claim, say Tabbe does not have that recorded—do not guess.
+- If you do not have information in the data for a claim, say ToHim does not have that recorded—do not guess.
 
 Instructions:
 - The list above is the complete, verified list of everyone in the "${groupName}" group. Do not add or remove anyone.
@@ -1397,7 +1397,7 @@ Rules:
 - State concrete facts: names, places, dates, events, plans, and direct quotes or claims from the notes. If the notes say they are starting a new job, say that; do not add that they are "excited" or "looking forward to it" unless the notes say so.
 - Use plain prose, no bullet points or markdown. Write only the summary, nothing else.`;
 
-    const systemContent = `You are Tabbe. You write character summaries using ONLY the session notes, transcripts, and stored metadata provided in the user message. Do not use the web, general knowledge, or assumptions about anyone. Only state facts that appear in that provided text. Do not invent traits, attitudes, or interpretations. Do not add filler like "dedicated," "looking forward to," or "excited about" unless the source text explicitly says so.`;
+    const systemContent = `You are ToHim. You write character summaries using ONLY the session notes, transcripts, and stored metadata provided in the user message. Do not use the web, general knowledge, or assumptions about anyone. Only state facts that appear in that provided text. Do not invent traits, attitudes, or interpretations. Do not add filler like "dedicated," "looking forward to," or "excited about" unless the source text explicitly says so.`;
 
     try {
       const response = await callOpenAIWithTimeout(

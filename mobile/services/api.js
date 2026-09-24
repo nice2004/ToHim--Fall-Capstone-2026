@@ -46,7 +46,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
     // ngrok free tier requires this header to skip browser warning
     'ngrok-skip-browser-warning': 'true',
-    'User-Agent': 'Tabbe-Mobile-App',
+    'User-Agent': 'ToHim-Mobile-App',
   },
   // Allow self-signed certificates (for ngrok)
   // IMPORTANT: Only accept 2xx status codes as success
@@ -762,7 +762,7 @@ export const transcribeAPI = {
       const headers = {
         'Content-Type': 'multipart/form-data',
         'ngrok-skip-browser-warning': 'true',
-        'User-Agent': 'Tabbe-Mobile-App',
+        'User-Agent': 'ToHim-Mobile-App',
       };
       
       // Add auth token if available

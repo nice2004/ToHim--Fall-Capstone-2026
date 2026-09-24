@@ -58,7 +58,7 @@ function HomeStack({ onLogout }) {
         headerShown: false,
       }}
     >
-      <Stack.Screen name="HomeMain" options={{ title: 'Thim' }}>
+      <Stack.Screen name="HomeMain" options={{ title: 'ToHim' }}>
         {(props) => <HomeScreen {...props} onLogout={onLogout} />}
       </Stack.Screen>
       <Stack.Screen name="Session" component={SessionScreen} options={{ title: 'New Prayer Request' }} />
@@ -300,7 +300,7 @@ function AppInner() {
                 name="RemindMe"
                 component={RemindMeScreen}
                 options={{
-                  title: 'Ask Thim',
+                  title: 'Ask ToHim',
                   tabBarButton: makeMeasuredTabBarButton('RemindMe'),
                 }}
               />

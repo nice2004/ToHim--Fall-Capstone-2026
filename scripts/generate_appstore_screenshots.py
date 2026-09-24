@@ -99,7 +99,7 @@ DEFAULT_SHOTS = [
         id="04_record",
         input_file="record.png",
         headline="Capture Interactions Instantly",
-        subtitle="Type or speak your notes and let Tabbe structure what matters.",
+        subtitle="Type or speak your notes and let ToHim structure what matters.",
     ),
     Shot(
         id="05_ask",

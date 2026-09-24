@@ -49,7 +49,7 @@ const requirePrivacyConsent = (req, res, next) => {
   }
   return res.status(403).json({
     error: 'Privacy policy consent required',
-    details: 'You must agree to Tabbe privacy policy before using this feature.',
+    details: 'You must agree to ToHim privacy policy before using this feature.',
     code: 'PRIVACY_CONSENT_REQUIRED',
   });
 };

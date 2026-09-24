@@ -2,7 +2,7 @@
 
 ## normalize-all-dates.js
 
-This script normalizes all relative dates in existing Tabbe data to absolute dates.
+This script normalizes all relative dates in existing ToHim data to absolute dates.
 
 ### What it does:
 1. **Session Notes**: Normalizes relative dates (like "tomorrow", "next week") in all session notes to absolute dates based on when each session was created

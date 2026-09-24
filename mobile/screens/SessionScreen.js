@@ -1100,8 +1100,8 @@ export default function SessionScreen({ route, navigation }) {
             disabled={isSubmitting}
             activeOpacity={0.9}
             accessibilityRole="button"
-            accessibilityLabel="Submit prayer request to Thim"
-            accessibilityHint="Save this prayer request to Thim"
+            accessibilityLabel="Submit prayer request to ToHim"
+            accessibilityHint="Save this prayer request to ToHim"
             accessibilityState={{ disabled: isSubmitting }}
           >
             {isSubmitting ? (

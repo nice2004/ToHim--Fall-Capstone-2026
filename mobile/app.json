@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Thim",
+    "name": "ToHim",
     "slug": "Thim",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
@@ -15,8 +15,8 @@
       "bundleIdentifier": "com.nicetetahirwa.Thim",
       "buildNumber": "2",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Thim needs access to your microphone to record voice interactions.",
-        "NSSpeechRecognitionUsageDescription": "Thim uses speech recognition to process your voice input.",
+        "NSMicrophoneUsageDescription": "ToHim needs access to your microphone to record voice interactions.",
+        "NSSpeechRecognitionUsageDescription": "ToHim uses speech recognition to process your voice input.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

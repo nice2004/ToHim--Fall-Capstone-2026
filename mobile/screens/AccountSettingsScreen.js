@@ -114,7 +114,7 @@ export default function AccountSettingsScreen({ navigation, onLogout }) {
   const handleRequestDelete = () => {
     Alert.alert(
       'Delete your account?',
-      'This permanently removes your Thim account and all data on our servers (people, sessions, calendar, and Ask Thim memory). This cannot be undone.\n\nAre you sure you want to continue?',
+      'This permanently removes your ToHim account and all data on our servers (people, sessions, calendar, and Ask ToHim memory). This cannot be undone.\n\nAre you sure you want to continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -267,7 +267,7 @@ export default function AccountSettingsScreen({ navigation, onLogout }) {
                 Confirm account deletion
               </Text>
               <Text style={styles.modalSubtitle}>
-                Enter your Tabbe username and password to permanently delete your account.
+                Enter your ToHim username and password to permanently delete your account.
               </Text>
               <Text style={styles.fieldLabel}>Username</Text>
               <TextInput

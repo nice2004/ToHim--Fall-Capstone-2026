@@ -17,7 +17,7 @@ import CoachDimming from './CoachDimming';
 const HOLE_BORDER_PAD = 3;
 const HOLE_BORDER_PAD_TIGHT = 2;
 
-/** Extra width on each side for per-tab cutouts so labels (e.g. “Ask Thim”) are not clipped */
+/** Extra width on each side for per-tab cutouts so labels (e.g. “Ask ToHim”) are not clipped */
 const TAB_SLOT_X_OUTSET = 5;
 
 /** Route names — must match Tab.Screen `name` / `tabBar.slot.<name>` */
@@ -91,7 +91,7 @@ function buildSteps() {
       id: 'welcome',
       title: '',
       body:
-        'Welcome to Thim! Thim is a tool to help you remember the things that matter about people that matter. Let me show you a few of Thim\'s core features',
+        'Welcome to ToHim! ToHim is a tool to help you remember the things that matter about people that matter. Let me show you a few of ToHim\'s core features',
       targetKeys: [],
       tooltipPosition: 'bottom',
       ensure: (nav) => {
@@ -102,7 +102,7 @@ function buildSteps() {
       id: 'tabs',
       title: 'Tabs',
       body:
-        "Use Thim's bottom tabs to jump between Thim's various functions.",
+        "Use ToHim's bottom tabs to jump between ToHim's various functions.",
       targetKeys: ['tabBar.all'],
       tooltipPosition: 'top',
       arrowToTabBar: true,
@@ -144,10 +144,10 @@ function buildSteps() {
       },
     },
     {
-      id: 'askThim',
-      title: 'Ask Thim',
+      id: 'askToHim',
+      title: 'Ask ToHim',
       body:
-        'Once you have recorded sessions, you can ask Thim questions about those sessions in the Ask Thim tab. Once again you can toggle Voice Mode to query by voice or by text',
+        'Once you have recorded sessions, you can ask ToHim questions about those sessions in the Ask ToHim tab. Once again you can toggle Voice Mode to query by voice or by text',
       targetKeys: ['tabBar.slot.RemindMe', 'remind.voiceToggle', 'remind.askButton'],
       tooltipPosition: 'aboveTabBar',
       ensure: (nav) => {

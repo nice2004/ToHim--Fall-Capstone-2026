@@ -138,7 +138,7 @@ export default function HomeScreen({ navigation, onLogout }) {
               importantForAccessibility="no"
             />
             <Text style={styles.title} accessibilityRole="header">
-              Thim
+              ToHim
             </Text>
             <Text style={styles.subtitle}>Keep track of your prayer request</Text>
             {userName && (
@@ -206,7 +206,7 @@ export default function HomeScreen({ navigation, onLogout }) {
               importantForAccessibility="no"
             />
             <Text style={styles.infoText}>
-              Start a new prayer request to record what's on your heart or a need for you or for others! Thim will automatically create profiles for any people you mention and log
+              Start a new prayer request to record what's on your heart or a need for you or for others! ToHim will automatically create profiles for any people you mention and log
               their information.
             </Text>
           </GlassSurface>
@@ -216,7 +216,7 @@ export default function HomeScreen({ navigation, onLogout }) {
             onPress={handleLogout}
             accessibilityRole="button"
             accessibilityLabel="Log out"
-            accessibilityHint="Sign out of Thim on this device"
+            accessibilityHint="Sign out of ToHim on this device"
           >
             <Ionicons
               name="log-out-outline"

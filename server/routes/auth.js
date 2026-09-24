@@ -98,8 +98,8 @@ async function createAndSendVerificationCode(user) {
   );
   await sendEmail({
     to: user.email,
-    subject: 'Your Tabbe verification code',
-    text: `Your Tabbe verification code is ${code}. It expires in ${VERIFICATION_CODE_TTL_MINUTES} minutes.`,
+    subject: 'Your ToHim verification code',
+    text: `Your ToHim verification code is ${code}. It expires in ${VERIFICATION_CODE_TTL_MINUTES} minutes.`,
   });
 }
 
@@ -116,8 +116,8 @@ async function createAndSendPasswordResetCode(user) {
   );
   await sendEmail({
     to: user.email,
-    subject: 'Your Tabbe password reset code',
-    text: `Your Tabbe password reset code is ${code}. It expires in ${RESET_CODE_TTL_MINUTES} minutes.`,
+    subject: 'Your ToHim password reset code',
+    text: `Your ToHim password reset code is ${code}. It expires in ${RESET_CODE_TTL_MINUTES} minutes.`,
   });
 }
 

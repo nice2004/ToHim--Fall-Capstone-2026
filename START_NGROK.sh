@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting ngrok tunnel for Tabbe backend"
+echo "🚀 Starting ngrok tunnel for ToHim backend"
 echo ""
 echo "Make sure your backend server is running on port 3000!"
 echo "Press Ctrl+C to stop ngrok"

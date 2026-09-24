@@ -47,7 +47,7 @@ const metricsRoutes = require('./routes/metrics');
 // Root API endpoint
 app.get('/api', (req, res) => {
   res.json({
-    message: 'Tabbe API',
+    message: 'ToHim API',
     version: '1.0.0',
     endpoints: {
       health: 'GET /api/health',
@@ -103,7 +103,7 @@ app.get('/api/health', (req, res) => {
                     process.env.OPENAI_API_KEY !== 'your_openai_api_key_here';
   res.json({ 
     status: 'ok', 
-    message: 'Tabbe API is running',
+    message: 'ToHim API is running',
     hasApiKey: hasApiKey,
     timestamp: new Date().toISOString(),
     serverIP: req.socket.localAddress,
@@ -150,7 +150,7 @@ app.use('/api/*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Tabbe server running on port ${PORT}`);
+  console.log(`ToHim server running on port ${PORT}`);
   console.log(`Server accessible at http://localhost:${PORT} and http://0.0.0.0:${PORT}`);
   console.log(`Network access: Make sure your device can reach this server on your local network`);
   console.log(`Available routes:`);

@@ -1,7 +1,7 @@
 {
-  "name": "tabbe-relationship-tracker",
+  "name": "tohim-prayer-tracker",
   "version": "1.0.0",
-  "description": "Mobile app to keep track of relationships and interactions",
+  "description": "Mobile app for recording, organizing, and returning to prayer requests",
   "main": "index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -12,7 +12,7 @@
     "fix:calendar-dates": "node server/scripts/fix-calendar-dates.js"
   },
   "keywords": [
-    "relationships",
+    "prayer",
     "tracker",
     "mobile",
     "ai"
