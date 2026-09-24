@@ -2,9 +2,15 @@
 
 ToHim is a mobile app for prayer-request tracking. It helps people intentionally
 record their prayer requests instead of relying on memory or writing them down
-somewhere and never returning to them: **record prayers → organize them →
-return to them consistently → track when they are answered → reflect on prayer
-over time.**
+somewhere and never returning to them.
+
+The long-term vision is: **record prayers → organize them → return to them
+consistently → track when they are answered → reflect on prayer over time.**
+Not all of this is built yet — in particular, tracking whether a prayer has
+been answered is still planned, not implemented (see
+[Planned, not yet implemented](#planned-not-yet-implemented) below). What's
+actually working today is recording, organizing, and returning to prayer
+requests; see [Implemented features](#implemented-features).
 
 This is a CS-195 capstone project.
 
