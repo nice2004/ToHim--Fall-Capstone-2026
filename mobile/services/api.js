@@ -28,8 +28,15 @@ import Constants from 'expo-constants';
 const PRODUCTION_API_URL =
   Constants.expoConfig?.extra?.apiBaseUrl || 'https://tabbi.onrender.com/api';
 
+// TODO (Nice): David's old ngrok URL was hardcoded here and is almost
+// certainly dead now. Replace this with EITHER:
+//   - your local server's LAN IP, e.g. 'http://192.168.1.100:3000/api'
+//     (find it with `ipconfig` on Windows), or
+//   - a fresh ngrok/tunnel URL if testing on a physical device off your LAN
+const DEV_API_URL = 'https://designed-bonehead-unfiled.ngrok-free.dev/api';
+
 const API_BASE_URL = __DEV__
-  ? 'https://unvamped-anita-preintellectually.ngrok-free.dev/api'
+  ? DEV_API_URL
   : PRODUCTION_API_URL;
 
 const api = axios.create({

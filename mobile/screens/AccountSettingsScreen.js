@@ -114,7 +114,7 @@ export default function AccountSettingsScreen({ navigation, onLogout }) {
   const handleRequestDelete = () => {
     Alert.alert(
       'Delete your account?',
-      'This permanently removes your Tabbe account and all data on our servers (people, sessions, calendar, and Ask Tabbe memory). This cannot be undone.\n\nAre you sure you want to continue?',
+      'This permanently removes your Thim account and all data on our servers (people, sessions, calendar, and Ask Thim memory). This cannot be undone.\n\nAre you sure you want to continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {

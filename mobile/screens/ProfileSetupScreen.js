@@ -61,7 +61,7 @@ export default function ProfileSetupScreen({ navigation, onComplete }) {
               importantForAccessibility="no"
             />
             <Text style={styles.title} accessibilityRole="header">
-              Welcome to Tabbe!
+              Welcome to Thim!
             </Text>
             <Text style={styles.subtitle}>
               Let's set up your profile

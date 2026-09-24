@@ -45,7 +45,7 @@ function PeopleStack() {
     >
       <Stack.Screen name="PeopleList" component={PeopleScreen} options={{ title: 'People' }} />
       <Stack.Screen name="PersonDetail" component={PersonDetailScreen} options={{ title: 'Person Details' }} />
-      <Stack.Screen name="NewSession" component={SessionScreen} options={{ title: 'Record Session' }} />
+      <Stack.Screen name="NewSession" component={SessionScreen} options={{ title: 'Record Prayer Request' }} />
     </Stack.Navigator>
   );
 }
@@ -58,10 +58,10 @@ function HomeStack({ onLogout }) {
         headerShown: false,
       }}
     >
-      <Stack.Screen name="HomeMain" options={{ title: 'Tabbe' }}>
+      <Stack.Screen name="HomeMain" options={{ title: 'Thim' }}>
         {(props) => <HomeScreen {...props} onLogout={onLogout} />}
       </Stack.Screen>
-      <Stack.Screen name="Session" component={SessionScreen} options={{ title: 'New Session' }} />
+      <Stack.Screen name="Session" component={SessionScreen} options={{ title: 'New Prayer Request' }} />
     </Stack.Navigator>
   );
 }
@@ -300,7 +300,7 @@ function AppInner() {
                 name="RemindMe"
                 component={RemindMeScreen}
                 options={{
-                  title: 'Ask Tabbe',
+                  title: 'Ask Thim',
                   tabBarButton: makeMeasuredTabBarButton('RemindMe'),
                 }}
               />

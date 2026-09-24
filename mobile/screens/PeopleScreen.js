@@ -503,7 +503,7 @@ export default function PeopleScreen({ navigation }) {
             <Ionicons name="people-outline" size={80} color="#ccc" />
             <Text style={styles.emptyText}>No people yet</Text>
             <Text style={styles.emptySubtext}>
-              Start a session to add your first person
+              Start a prayer request to add your first person
             </Text>
           </View>
         ) : hasActiveSearch && filteredPersons.length === 0 ? (
@@ -692,8 +692,8 @@ export default function PeopleScreen({ navigation }) {
                 <Ionicons name="search" size={32} color={colors.primary} style={styles.infoIcon} />
                 <Text style={styles.infoTitle}>Query Groups</Text>
                 <Text style={styles.infoText}>
-                  You can ask Tabbe questions about groups in Ask Tabbe. For example: 
-                  "Which of my mentors am I supposed to be meeting with soon?"
+                  You can ask Thim questions about groups in Ask Thim. For example: 
+                  "Which of my mentors am I supposed pray for?"
                 </Text>
               </View>
 

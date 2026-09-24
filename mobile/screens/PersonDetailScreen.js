@@ -271,7 +271,7 @@ export default function PersonDetailScreen({ route, navigation }) {
         });
     } catch (error) {
       console.error('Error saving session:', error);
-      Alert.alert('Error', error.message || 'Failed to save session');
+      Alert.alert('Error', error.message || 'Failed to save prayer request');
     } finally {
       setIsSavingSession(false);
     }
@@ -280,8 +280,8 @@ export default function PersonDetailScreen({ route, navigation }) {
   const confirmDeleteSession = () => {
     if (!editingSession) return;
     Alert.alert(
-      'Delete session',
-      'Remove this session and any calendar events tied to it? This cannot be undone.',
+      'Delete prayer request',
+      'Remove this prayer request and any calendar events tied to it? This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -313,7 +313,7 @@ export default function PersonDetailScreen({ route, navigation }) {
         error.response?.data?.details ||
         error.response?.data?.error ||
         error.message ||
-        'Failed to delete session';
+        'Failed to delete prayer request';
       Alert.alert('Error', msg);
     } finally {
       setIsDeletingSession(false);
@@ -340,8 +340,8 @@ export default function PersonDetailScreen({ route, navigation }) {
         }
 
         Alert.alert(
-          'Session Transferred',
-          `This session was moved to ${result.newPerson?.full_name || 'the selected person'}.`,
+          'Prayer Request Transferred',
+          `This prayer request was moved to ${result.newPerson?.full_name || 'the selected person'}.`,
           [
             {
               text: 'View Person',
@@ -369,7 +369,7 @@ export default function PersonDetailScreen({ route, navigation }) {
   const confirmDelete = () => {
     Alert.alert(
       'Delete Person',
-      `Are you sure you want to delete ${personData?.person?.full_name}? This will also delete all their sessions and stored information. This action cannot be undone.`,
+      `Are you sure you want to delete ${personData?.person?.full_name}? This will also delete all their prayer requests and stored information. This action cannot be undone.`,
       [
         {
           text: 'Cancel',
@@ -447,12 +447,12 @@ export default function PersonDetailScreen({ route, navigation }) {
           })}
         >
           <Ionicons name="add-circle" size={24} color={colors.primary} />
-          <Text style={styles.actionButtonText}>Record New Session</Text>
+          <Text style={styles.actionButtonText}>Record New Prayer Request</Text>
         </TouchableOpacity>
 
         {sessions && sessions.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Sessions ({sessions.length})</Text>
+            <Text style={styles.sectionTitle}>Prayer Requests ({sessions.length})</Text>
             {sessions.map((session, index) => (
               <GlassSurface key={session.id} style={styles.sessionCard}>
                 <View style={styles.sessionHeader}>
@@ -518,7 +518,7 @@ export default function PersonDetailScreen({ route, navigation }) {
               <Text style={styles.summaryText}>{characterSummary}</Text>
             ) : (
               <Text style={styles.summaryEmptyText}>
-                No summary available yet. Record some sessions to get started.
+                No summary available yet. Record some prayer requests to get started.
               </Text>
             )}
           </GlassSurface>
@@ -527,9 +527,9 @@ export default function PersonDetailScreen({ route, navigation }) {
         {(!sessions || sessions.length === 0) && (!metadata || metadata.length === 0) && (
           <View style={styles.emptySection}>
             <Ionicons name="document-outline" size={50} color="#ccc" />
-            <Text style={styles.emptyText}>No sessions recorded yet</Text>
+            <Text style={styles.emptyText}>No prayer request recorded yet</Text>
             <Text style={styles.emptySubtext}>
-              Tap "Record New Session" to add information about this person
+              Tap "Record New Prayer Request" to add information about this person
             </Text>
           </View>
         )}
@@ -632,9 +632,9 @@ export default function PersonDetailScreen({ route, navigation }) {
       >
         <View style={styles.modalOverlay}>
           <GlassSurface style={styles.modalContent} intensity={52} strong>
-            <Text style={styles.modalTitle}>Move Session to Another Person</Text>
+            <Text style={styles.modalTitle}>Move Prayer Request to Another Person</Text>
             <Text style={styles.modalMessage}>
-              Choose who this session actually belongs to.
+              Choose who this prayer request actually belongs to.
             </Text>
 
             <View style={styles.searchContainer}>
@@ -681,7 +681,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                     <Ionicons name="person" size={24} color={colors.primary} style={styles.personIcon} />
                     <View style={styles.personCardContent}>
                       <Text style={styles.similarPersonName}>{p.full_name}</Text>
-                      <Text style={styles.similarPersonMatch}>Tap to move session here</Text>
+                      <Text style={styles.similarPersonMatch}>Tap to move prayer request here</Text>
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -691,7 +691,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                   <Ionicons name="people-outline" size={48} color="#ccc" />
                   <Text style={styles.noResultsText}>No other people available</Text>
                   <Text style={styles.noResultsSubtext}>
-                    Create another person first, then move the session.
+                    Create another person first, then move the prayer request.
                   </Text>
                 </View>
               )}
@@ -716,7 +716,7 @@ export default function PersonDetailScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Edit Session Modal */}
+      {/* Edit Prayer Request Modal */}
       <Modal
         visible={!!editingSession}
         transparent={true}
@@ -784,7 +784,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                     multiline
                     value={editTranscript}
                     onChangeText={setEditTranscript}
-                    placeholder="Session notes and transcript…"
+                    placeholder="Prayer request notes and transcript…"
                     textAlignVertical="top"
                     editable={!isSavingSession && !isDeletingSession}
                     scrollEnabled={false}
@@ -800,7 +800,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                     ) : (
                       <>
                         <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                        <Text style={styles.editSessionDeleteText}>Delete session</Text>
+                        <Text style={styles.editSessionDeleteText}>Delete prayer request</Text>
                       </>
                     )}
                   </TouchableOpacity>

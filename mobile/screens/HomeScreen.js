@@ -138,9 +138,9 @@ export default function HomeScreen({ navigation, onLogout }) {
               importantForAccessibility="no"
             />
             <Text style={styles.title} accessibilityRole="header">
-              Tabbe
+              Thim
             </Text>
-            <Text style={styles.subtitle}>Keep track of your relationships</Text>
+            <Text style={styles.subtitle}>Keep track of your prayer request</Text>
             {userName && (
               <View style={styles.userBadge} accessibilityLabel={`Signed in as ${userName}`}>
                 <Ionicons
@@ -161,8 +161,8 @@ export default function HomeScreen({ navigation, onLogout }) {
                 style={styles.primaryButton}
                 onPress={() => runOncePerTap(() => navigation.navigate('Session'))}
                 accessibilityRole="button"
-                accessibilityLabel="Start new session"
-                accessibilityHint="Record a new session about someone you met"
+                accessibilityLabel="Start new prayer request"
+                accessibilityHint="Record a new prayer request for someone you're praying for"
               >
                 <Ionicons
                   name="mic"
@@ -172,7 +172,7 @@ export default function HomeScreen({ navigation, onLogout }) {
                   accessibilityElementsHidden
                   importantForAccessibility="no"
                 />
-                <Text style={styles.primaryButtonText}>Start New Session</Text>
+                <Text style={styles.primaryButtonText}>Start New Prayer Request</Text>
               </TouchableOpacity>
             </View>
 
@@ -206,8 +206,7 @@ export default function HomeScreen({ navigation, onLogout }) {
               importantForAccessibility="no"
             />
             <Text style={styles.infoText}>
-              Start a session to record personal interactions, or meeting notes, or anything you want
-              to remember! Tabbe will automatically create profiles for any people you mention and log
+              Start a new prayer request to record what's on your heart or a need for you or for others! Thim will automatically create profiles for any people you mention and log
               their information.
             </Text>
           </GlassSurface>
@@ -217,7 +216,7 @@ export default function HomeScreen({ navigation, onLogout }) {
             onPress={handleLogout}
             accessibilityRole="button"
             accessibilityLabel="Log out"
-            accessibilityHint="Sign out of Tabbe on this device"
+            accessibilityHint="Sign out of Thim on this device"
           >
             <Ionicons
               name="log-out-outline"

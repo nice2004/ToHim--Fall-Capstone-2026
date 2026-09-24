@@ -13,18 +13,18 @@ export default function PrivacyScreen() {
         showsVerticalScrollIndicator
       >
         <Text style={styles.lead}>
-          This summary describes how Tabbe handles your information and security. It is provided for
+          This summary describes how Thim handles your information and security. It is provided for
           transparency and may be updated as the app evolves.
         </Text>
 
         <Text style={styles.h2} accessibilityRole="header">
-          How Tabbe uses your information
+          How Thim uses your information
         </Text>
         <Text style={styles.p}>
-          Tabbe stores the information you choose to save—such as session notes, people you add,
+          Thim stores the information you choose to save—such as session notes, people you add,
           groups, and calendar-related details—on our servers so you can use the app and sync your
           data. We use this information only to operate the service (save, sync, search, and
-          features like Ask Tabbe).
+          features like Ask Thim).
         </Text>
 
         <Text style={styles.h2} accessibilityRole="header">
@@ -62,7 +62,7 @@ export default function PrivacyScreen() {
         </Text>
         <Text style={styles.p}>
           Your account data is kept in a managed database with access limited to our application.
-          Tabbe is not an end-to-end encrypted vault for every field—the service needs to read your
+          Thim is not an end-to-end encrypted vault for every field—the service needs to read your
           saved content to provide features—but we follow common practices for access control,
           protected connections, and keeping secrets out of source code.
         </Text>

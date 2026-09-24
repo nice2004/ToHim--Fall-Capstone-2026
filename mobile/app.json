@@ -1,27 +1,22 @@
 {
   "expo": {
-    "name": "Tabbe",
-    "slug": "tabbe",
+    "name": "Thim",
+    "slug": "Thim",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "scheme": "tabbe",
-    "developmentClient": false,
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+    "scheme": "thim",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.davidoyebade.tabbe",
+      "bundleIdentifier": "com.nicetetahirwa.Thim",
       "buildNumber": "2",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Tabbe needs access to your microphone to record voice interactions.",
-        "NSSpeechRecognitionUsageDescription": "Tabbe uses speech recognition to process your voice input.",
+        "NSMicrophoneUsageDescription": "Thim needs access to your microphone to record voice interactions.",
+        "NSSpeechRecognitionUsageDescription": "Thim uses speech recognition to process your voice input.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -30,21 +25,39 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.davidoyebade.tabbe",
+      "package": "com.nicetetahirwa.Thim",
       "versionCode": 1,
       "permissions": [
+        "RECORD_AUDIO",
         "RECORD_AUDIO"
       ]
     },
     "web": {},
     "extra": {
+      "apiBaseUrl": "https://tabbi.onrender.com/api",
       "eas": {
-        "projectId": "d8ece90e-0438-4970-b5ff-79aaa8f96305"
-      },
-      "apiBaseUrl": "https://tabbi.onrender.com/api"
+        "projectId": "090abdbe-eedc-4399-9e58-7c98894eb329"
+      }
     },
     "plugins": [
-      "expo-sqlite"
-    ]
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "backgroundColor": "#ffffff",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-font",
+      "expo-asset"
+    ],
+    "owner": "thim-westmont-cs195",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/090abdbe-eedc-4399-9e58-7c98894eb329"
+    }
   }
 }

@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
-import { Audio, InterruptionModeIOS } from 'expo-av';
+import { AudioModule, setAudioModeAsync } from 'expo-audio';
 import { sessionAPI, personAPI } from '../services/api';
 import { useVoiceRecognition } from '../hooks/useVoiceRecognition';
 import { RADIUS } from '../theme';
@@ -145,11 +145,10 @@ export default function SessionScreen({ route, navigation }) {
 
     // Ensure TTS owns the audio session (first iOS utterance is often silent if session is ambiguous).
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        playThroughEarpieceAndroid: false,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        interruptionMode: 'doNotMix',
       });
     } catch (modeError) {
       console.warn('[SessionScreen] Could not switch to playback audio mode for TTS:', modeError);
@@ -253,14 +252,13 @@ export default function SessionScreen({ route, navigation }) {
   useEffect(() => {
     (async () => {
       try {
-        await Audio.requestPermissionsAsync();
+        await AudioModule.requestRecordingPermissionsAsync();
         // Start in playback mode so the very first TTS prompt is clearly audible.
         // Recording mode will be enabled later by the voice recognition hook when actually listening.
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          playThroughEarpieceAndroid: false,
-          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+          interruptionMode: 'doNotMix',
         });
         await initializeSpeechVoice();
         await primeTtsIfNeeded();
@@ -358,7 +356,7 @@ export default function SessionScreen({ route, navigation }) {
         }
       };
 
-      const promptText = 'I\'m listening. Please describe your interaction.';
+      const promptText = 'I\'m listening. Please share your prayer request.';
       const isFirstVoicePrompt = voicePromptMinMsRef.current != null;
 
       // Safety net: on some cold starts TTS callbacks can be delayed/missed.
@@ -485,12 +483,12 @@ export default function SessionScreen({ route, navigation }) {
         } else {
           console.error('[SessionScreen] Transcription returned empty result');
           Speech.speak('Transcription failed. Please type what you said, or try recording again.', { language: 'en' });
-          Alert.alert('Transcription Failed', 'No text was transcribed. Please type your interaction manually or try recording again.');
+          Alert.alert('...type your prayer request manually...');
         }
       } catch (error) {
         console.error('[SessionScreen] Error during transcription:', error);
         Speech.speak('Error transcribing audio. Please type what you said.', { language: 'en' });
-        Alert.alert('Transcription Error', error.message || 'Failed to transcribe audio. Please type your interaction manually.');
+        Alert.alert('Transcription Error', error.message || '...type your prayer request manually..');
       } finally {
         setIsSubmitting(false);
       }
@@ -506,8 +504,8 @@ export default function SessionScreen({ route, navigation }) {
     // Dismiss keyboard
     Keyboard.dismiss();
     
-    if (!transcript.trim()) {
-      Alert.alert('Error', 'Please enter a transcript of your interaction.');
+    if (!transcript.trim()) {Please 
+      Alert.alert('Error', 'Please enter your prayer request.');
       return;
     }
 
@@ -583,7 +581,7 @@ export default function SessionScreen({ route, navigation }) {
         Speech.speak(
           isMultiEntity
             ? `Recorded ${result.createdCount || result.persons?.length || 2} entities successfully.`
-            : 'Session recorded successfully!',
+            : 'Prayer request recorded successfully!',
           { language: 'en' }
         );
         
@@ -606,7 +604,7 @@ export default function SessionScreen({ route, navigation }) {
               'Success! ✅',
               isMultiEntity
                 ? `Session details were split across ${result.createdCount || result.persons?.length || 2} entities.`
-                : `Session recorded for ${recordedPersonName}`,
+                : `Prayer Request recorded for ${recordedPersonName}`,
               [{ text: 'OK' }]
             );
           }, 500);
@@ -622,8 +620,8 @@ export default function SessionScreen({ route, navigation }) {
         navigation.goBack();
         
         Alert.alert(
-          'Session Submitted',
-          'Your session has been submitted. Please check the People tab to verify it was recorded.',
+          'Prayer Request Submitted',
+          'Your prayer request has been submitted. Please check the People tab to verify it was recorded.',
           [{ text: 'OK' }]
         );
       }
@@ -636,7 +634,7 @@ export default function SessionScreen({ route, navigation }) {
         fullError: JSON.stringify(error.response?.data, null, 2)
       });
       
-      const errorMessage = error.message || error.response?.data?.error || error.response?.data?.details || 'Failed to record session';
+      const errorMessage = error.message || error.response?.data?.error || error.response?.data?.details || 'Failed to record prayer request';
       const errorData = error.response?.data || {};
       
       // Check for needsClarification flag - check ALL possible locations
@@ -743,7 +741,7 @@ export default function SessionScreen({ route, navigation }) {
         Speech.speak(
           isMultiEntity
             ? `Recorded ${result.createdCount || result.persons?.length || 2} entities successfully.`
-            : 'Session recorded successfully!',
+            : 'Prayer request recorded successfully!',
           { language: 'en' }
         );
         
@@ -766,8 +764,8 @@ export default function SessionScreen({ route, navigation }) {
             Alert.alert(
               'Success! ✅',
               isMultiEntity
-                ? `Session details were split across ${result.createdCount || result.persons?.length || 2} entities.`
-                : `Session recorded for ${recordedPersonName}`,
+                ? `Prayer request details were split across ${result.createdCount || result.persons?.length || 2} entities.`
+                : `Prayer request recorded for ${recordedPersonName}`,
               [{ text: 'OK' }]
             );
           }, 500);
@@ -775,7 +773,7 @@ export default function SessionScreen({ route, navigation }) {
       }
     } catch (error) {
       console.error('[SessionScreen] Error in clarification submit:', error);
-      Alert.alert('Error', error.message || 'Failed to record session');
+      Alert.alert('Error', error.message || 'Failed to record prayer request');
     } finally {
       setIsSubmitting(false);
       endSessionAction(sessionActionInFlightRef);
@@ -805,7 +803,7 @@ export default function SessionScreen({ route, navigation }) {
       await runner(snap);
     } catch (error) {
       console.error('[SessionScreen] Disambiguation choice error:', error);
-      Alert.alert('Error', error.message || error.response?.data?.error || 'Failed to record session');
+      Alert.alert('Error', error.message || error.response?.data?.error || 'Failed to record prayer request');
     } finally {
       setIsSubmitting(false);
       endSessionAction(sessionActionInFlightRef);
@@ -913,7 +911,7 @@ export default function SessionScreen({ route, navigation }) {
               importantForAccessibility="no"
             />
             <Text style={styles.title} accessibilityRole="header">
-              Record Session
+              Record Prayer Request
             </Text>
             {personName && (
               <Text style={styles.personName}>For: {personName}</Text>
@@ -925,7 +923,7 @@ export default function SessionScreen({ route, navigation }) {
               style={[styles.voiceToggle, voiceMode && styles.voiceToggleActive]}
               accessibilityRole="button"
               accessibilityLabel={voiceMode ? 'Voice mode on' : 'Voice mode off'}
-              accessibilityHint="Toggle voice recording and dictation for this session"
+              accessibilityHint="Toggle voice recording and dictation for this prayer request"
               accessibilityState={{ selected: voiceMode }}
               onPress={async () => {
                 // If turning voice mode OFF, make sure we fully exit any voice flows
@@ -1018,7 +1016,7 @@ export default function SessionScreen({ route, navigation }) {
           <View style={styles.inputContainer}>
             <View style={styles.inputHeader}>
               <Text style={styles.label}>
-                {voiceMode ? "Voice transcript will appear here in real-time, or type manually:" : "Describe your interaction"}
+                {voiceMode ? "Voice transcript will appear here in real-time, or type manually:" : "Describe your prayer request here"}
               </Text>
               <TouchableOpacity
                 style={styles.dismissKeyboardButton}
@@ -1061,8 +1059,8 @@ export default function SessionScreen({ route, navigation }) {
                   ? FIRST_SESSION_PLACEHOLDER
                   : ''}
               placeholderTextColor={colors.placeholderText}
-              accessibilityLabel="Session notes and transcript"
-              accessibilityHint="Describe your interaction or meeting. Include names, dates, and details you want to remember."
+              accessibilityLabel="Prayer request notes and transcript"
+              accessibilityHint="Describe your prayer request. Include names, dates, and details you want to remember."
               value={transcript}
               onChangeText={(text) => {
                 setTranscript(text);
@@ -1102,8 +1100,8 @@ export default function SessionScreen({ route, navigation }) {
             disabled={isSubmitting}
             activeOpacity={0.9}
             accessibilityRole="button"
-            accessibilityLabel="Submit session"
-            accessibilityHint="Save this session to Tabbe"
+            accessibilityLabel="Submit prayer request to Thim"
+            accessibilityHint="Save this prayer request to Thim"
             accessibilityState={{ disabled: isSubmitting }}
           >
             {isSubmitting ? (
@@ -1310,7 +1308,7 @@ export default function SessionScreen({ route, navigation }) {
                                 disabled={isSubmitting}
                                 accessibilityRole="button"
                                 accessibilityLabel={`Select ${person.full_name}`}
-                                accessibilityHint="Use this person for the session"
+                                accessibilityHint="Use this person for the prayer request"
                               >
                                 <Ionicons
                                   name="person"
@@ -1347,7 +1345,7 @@ export default function SessionScreen({ route, navigation }) {
                               disabled={isSubmitting}
                               accessibilityRole="button"
                               accessibilityLabel={`Select ${person.full_name}`}
-                              accessibilityHint="Use this person for the session"
+                              accessibilityHint="Use this person for the prayer request"
                             >
                               <Ionicons
                                 name="person"
@@ -1597,11 +1595,11 @@ export default function SessionScreen({ route, navigation }) {
                                   );
                                   if (result.success === true || result.person) {
                                     await markSessionPlaceholderConsumed();
-                                    Speech.speak('Session recorded successfully!', { language: 'en' });
+                                    Speech.speak('Prayer request recorded successfully!', { language: 'en' });
                                     setTranscript('');
                                     navigation.goBack();
                                     setTimeout(() => {
-                                      Alert.alert('Success! ✅', `Session recorded for ${person.full_name}`, [
+                                      Alert.alert('Success! ✅', `Prayer request recorded for ${person.full_name}`, [
                                         { text: 'OK' },
                                       ]);
                                     }, 300);
@@ -1610,7 +1608,7 @@ export default function SessionScreen({ route, navigation }) {
                               }
                               accessibilityRole="button"
                               accessibilityLabel={`Select ${person.full_name}`}
-                              accessibilityHint="Use this person for the session"
+                              accessibilityHint="Use this person for the prayer request"
                               accessibilityState={{ disabled: isSubmitting }}
                             >
                               <Text style={styles.similarPersonName}>{person.full_name}</Text>
@@ -1633,11 +1631,11 @@ export default function SessionScreen({ route, navigation }) {
                                 );
                                 if (result.success === true || result.person) {
                                   await markSessionPlaceholderConsumed();
-                                  Speech.speak('Session recorded successfully!', { language: 'en' });
+                                  Speech.speak('Prayer request recorded successfully!', { language: 'en' });
                                   setTranscript('');
                                   navigation.goBack();
                                   setTimeout(() => {
-                                    Alert.alert('Success! ✅', `Session recorded for ${person.full_name}`, [
+                                    Alert.alert('Success! ✅', `Prayer request recorded for ${person.full_name}`, [
                                       { text: 'OK' },
                                     ]);
                                   }, 300);
@@ -1682,13 +1680,13 @@ export default function SessionScreen({ route, navigation }) {
                         );
                         if (result.success === true || result.person) {
                           await markSessionPlaceholderConsumed();
-                          Speech.speak('Session recorded successfully!', { language: 'en' });
+                          Speech.speak('Prayer request recorded successfully!', { language: 'en' });
                           setTranscript('');
                           navigation.goBack();
                           setTimeout(() => {
                             Alert.alert(
                               'Success! ✅',
-                              `Session recorded for ${result.person?.full_name || snap.extractedName}`,
+                              `Prayer request recorded for ${result.person?.full_name || snap.extractedName}`,
                               [{ text: 'OK' }]
                             );
                           }, 300);

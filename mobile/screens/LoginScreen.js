@@ -36,7 +36,7 @@ export default function LoginScreen({ navigation, onLogin }) {
   const [awaitingUpgradeCode, setAwaitingUpgradeCode] = useState(false);
   const [pendingLoginOptions, setPendingLoginOptions] = useState(null);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
-  const privacyUrl = 'https://davidoyebade.github.io/tabbe-support/privacy.html';
+  const privacyUrl = 'https://davidoyebade.github.io/thim-support/privacy.html';
 
   const handleSubmit = async () => {
     console.log('[LoginScreen] Submit clicked, isSignUp:', isSignUp);
@@ -102,7 +102,7 @@ export default function LoginScreen({ navigation, onLogin }) {
             return;
           }
           if (!agreedToPrivacy) {
-            Alert.alert('Privacy policy required', 'You must agree to Tabbe privacy policy before creating an account.');
+            Alert.alert('Privacy policy required', 'You must agree to Thim privacy policy before creating an account.');
             return;
           }
           await authAPI.register(username.trim(), email.trim(), password, agreedToPrivacy);
@@ -135,7 +135,7 @@ export default function LoginScreen({ navigation, onLogin }) {
         if (result.user?.privacy_consent_given !== true) {
           Alert.alert(
             'Consent required for AI features',
-            'Tabbe sends the content you choose to submit (for example notes, questions, and optional voice audio/transcripts) to OpenAI to provide transcription and Ask Tabbe responses. Do you agree to this data sharing?',
+            'Thim sends the content you choose to submit (for example notes, questions, and optional voice audio/transcripts) to OpenAI to provide transcription and Ask Thim responses. Do you agree to this data sharing?',
             [
               {
                 text: 'Decline',
@@ -144,7 +144,7 @@ export default function LoginScreen({ navigation, onLogin }) {
                   await authAPI.logout();
                   Alert.alert(
                     'Consent required',
-                    'You must provide consent before Tabbe can use features that process data with OpenAI.'
+                    'You must provide consent before Thim can use features that process data with OpenAI.'
                   );
                 },
               },
@@ -261,7 +261,7 @@ export default function LoginScreen({ navigation, onLogin }) {
               importantForAccessibility="no"
             />
             <Text style={styles.title} accessibilityRole="header">
-              Tabbe
+              Thim
             </Text>
             <Text style={styles.subtitle}>
               {isEmailUpgrade
@@ -462,7 +462,7 @@ export default function LoginScreen({ navigation, onLogin }) {
                     ) : null}
                   </View>
                   <Text style={styles.checkboxLabel}>
-                    I agree that Tabbe may send content I submit (such as notes, questions, and optional
+                    I agree that Thim may send content I submit (such as notes, questions, and optional
                     voice audio/transcripts) to OpenAI for AI features, as described in the Privacy Policy.
                   </Text>
                 </TouchableOpacity>

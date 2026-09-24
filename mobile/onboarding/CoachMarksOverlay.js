@@ -17,7 +17,7 @@ import CoachDimming from './CoachDimming';
 const HOLE_BORDER_PAD = 3;
 const HOLE_BORDER_PAD_TIGHT = 2;
 
-/** Extra width on each side for per-tab cutouts so labels (e.g. “Ask Tabbe”) are not clipped */
+/** Extra width on each side for per-tab cutouts so labels (e.g. “Ask Thim”) are not clipped */
 const TAB_SLOT_X_OUTSET = 5;
 
 /** Route names — must match Tab.Screen `name` / `tabBar.slot.<name>` */
@@ -91,7 +91,7 @@ function buildSteps() {
       id: 'welcome',
       title: '',
       body:
-        'Welcome to Tabbe! Tabbe is a tool to help you remember the things that matter about people that matter. Let me show you a few of Tabbe\'s core features',
+        'Welcome to Thim! Thim is a tool to help you remember the things that matter about people that matter. Let me show you a few of Thim\'s core features',
       targetKeys: [],
       tooltipPosition: 'bottom',
       ensure: (nav) => {
@@ -102,7 +102,7 @@ function buildSteps() {
       id: 'tabs',
       title: 'Tabs',
       body:
-        "Use Tabbe's bottom tabs to jump between Tabbe's various functions.",
+        "Use Thim's bottom tabs to jump between Thim's various functions.",
       targetKeys: ['tabBar.all'],
       tooltipPosition: 'top',
       arrowToTabBar: true,
@@ -123,7 +123,7 @@ function buildSteps() {
     },
     {
       id: 'recordSession',
-      title: 'Record a session',
+      title: 'Record a prayer request',
       body:
         'Tap the "Start New Session" button to capture an interaction, toggle Voice mode to input by voice or by text. Tap the submit button to create a new person entity.',
       targetKeys: ['tabBar.slot.Home', 'session.voiceToggle', 'session.submit'],
@@ -134,7 +134,7 @@ function buildSteps() {
     },
     {
       id: 'viewSessions',
-      title: 'View sessions',
+      title: 'View prayer request',
       body:
         'Once you have recorded a session, you can view that session in the people tab, where any people that you mentioned in your session will have person entities.',
       targetKeys: ['tabBar.slot.People'],
@@ -144,10 +144,10 @@ function buildSteps() {
       },
     },
     {
-      id: 'askTabbe',
-      title: 'Ask Tabbe',
+      id: 'askThim',
+      title: 'Ask Thim',
       body:
-        'Once you have recorded sessions, you can ask Tabbe questions about those sessions in the Ask Tabbe tab. Once again you can toggle Voice Mode to query by voice or by text',
+        'Once you have recorded sessions, you can ask Thim questions about those sessions in the Ask Thim tab. Once again you can toggle Voice Mode to query by voice or by text',
       targetKeys: ['tabBar.slot.RemindMe', 'remind.voiceToggle', 'remind.askButton'],
       tooltipPosition: 'aboveTabBar',
       ensure: (nav) => {

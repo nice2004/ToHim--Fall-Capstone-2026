@@ -1,89 +1,43 @@
 import { useState, useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  AudioModule,
+  setAudioModeAsync,
+} from 'expo-audio';
 import { transcribeAPI } from '../services/api';
 
-// Voice recognition hook using expo-av for recording
+// Voice recognition hook using expo-audio for recording
+// (migrated from expo-av, which was removed from Expo Go in SDK 55+)
 // Audio is recorded and can be sent to backend for transcription
 export function useVoiceRecognition() {
-  const [isListening, setIsListening] = useState(false);
+  // expo-audio uses a single persistent recorder instance for the
+  // lifetime of the component, rather than creating a new Recording
+  // object on every start (as expo-av did). We re-arm it with
+  // prepareToRecordAsync() before each recording.
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
+
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState(null);
-  const [recording, setRecording] = useState(null);
   const [recordingUri, setRecordingUri] = useState(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  
-  // Use a ref to track the actual recording object for reliable cleanup
-  const recordingRef = useRef(null);
-  const isCleaningUpRef = useRef(false);
+  const isStartingRef = useRef(false);
 
-  // Helper function to properly clean up a recording object
-  const cleanupRecording = async (recordingToCleanup) => {
-    if (!recordingToCleanup) return;
-    
-    try {
-      const status = await recordingToCleanup.getStatusAsync();
-      if (status.isRecording) {
-        await recordingToCleanup.stopAndUnloadAsync();
-      } else {
-        // If not recording, try to unload
-        try {
-          await recordingToCleanup.unloadAsync();
-        } catch (unloadError) {
-          // If unload fails, try stopAndUnload anyway
-          try {
-            await recordingToCleanup.stopAndUnloadAsync();
-          } catch (stopError) {
-            console.log('[VoiceRecognition] Could not clean up recording:', stopError.message);
-          }
-        }
-      }
-    } catch (cleanupError) {
-      console.log('[VoiceRecognition] Error during cleanup:', cleanupError.message);
-      // Try one more time with stopAndUnloadAsync
-      try {
-        await recordingToCleanup.stopAndUnloadAsync();
-      } catch (finalError) {
-        console.log('[VoiceRecognition] Final cleanup attempt failed:', finalError.message);
-      }
-    }
-  };
+  const isListening = recorderState.isRecording;
 
   const startListening = async (options = {}) => {
     const { stopSpeechBeforeRecording = true } = options;
-    // Prevent concurrent calls
-    if (isCleaningUpRef.current) {
-      console.log('[VoiceRecognition] Cleanup in progress, waiting...');
-      // Wait for cleanup to complete
-      let waitCount = 0;
-      while (isCleaningUpRef.current && waitCount < 20) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        waitCount++;
-      }
+
+    if (isStartingRef.current || recorderState.isRecording) {
+      console.log('[VoiceRecognition] Already recording or starting, ignoring call');
+      return;
     }
-    
+
     try {
+      isStartingRef.current = true;
       setError(null);
-      isCleaningUpRef.current = true;
-      
-      // IMPORTANT: Stop and clean up any existing recording first
-      // Check both state and ref to be sure
-      const existingRecording = recordingRef.current || recording;
-      if (existingRecording) {
-        console.log('[VoiceRecognition] Cleaning up existing recording before starting new one');
-        await cleanupRecording(existingRecording);
-        
-        // Wait a bit to ensure the Recording object is fully released
-        // expo-av needs time to release the internal "prepared" state
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        recordingRef.current = null;
-        setRecording(null);
-        setRecordingUri(null);
-      }
-      
-      isCleaningUpRef.current = false;
-      setIsListening(true);
       setTranscript('');
 
       // Usually stop in-progress TTS before recording to avoid transcribing it.
@@ -97,160 +51,89 @@ export function useVoiceRecognition() {
           console.warn('[VoiceRecognition] Could not stop TTS before recording:', speechError?.message || speechError);
         }
       }
-      
+
       // Request permissions
-      await Audio.requestPermissionsAsync();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error('Microphone permission was denied');
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      // Start recording with a known-good high quality preset.
-      // This uses .m4a with AAC on both iOS and Android and is battle-tested in expo-av.
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      
-      recordingRef.current = newRecording;
-      setRecording(newRecording);
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       console.log('[VoiceRecognition] Recording started');
-      
     } catch (err) {
-      isCleaningUpRef.current = false;
       console.error('[VoiceRecognition] Error starting recognition:', err);
       setError(err.message);
-      setIsListening(false);
-      
-      // If error is about "only one Recording", try to clean up and retry once
-      if (err.message && err.message.includes('Only one Recording')) {
-        console.log('[VoiceRecognition] Detected Recording conflict, attempting cleanup and retry...');
-        try {
-          const existingRecording = recordingRef.current || recording;
-          if (existingRecording) {
-            await cleanupRecording(existingRecording);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            recordingRef.current = null;
-            setRecording(null);
-          }
-          
-          // Retry once after cleanup
-          await new Promise(resolve => setTimeout(resolve, 300));
-          const { recording: retryRecording } = await Audio.Recording.createAsync(
-            Audio.RecordingOptionsPresets.HIGH_QUALITY
-          );
-          recordingRef.current = retryRecording;
-          setRecording(retryRecording);
-          setIsListening(true);
-          console.log('[VoiceRecognition] Recording started after retry');
-        } catch (retryError) {
-          console.error('[VoiceRecognition] Retry also failed:', retryError);
-          setError('Failed to start recording. Please try again.');
-        }
-      }
+    } finally {
+      isStartingRef.current = false;
     }
   };
 
   const stopListening = async () => {
     try {
-      const recordingToStop = recordingRef.current || recording;
-      if (!recordingToStop) {
+      if (!recorderState.isRecording) {
         console.log('[VoiceRecognition] No recording to stop');
-        setIsListening(false);
         return null;
       }
-      
-      setIsListening(false);
-      
-      let uri = null;
 
-      try {
-        console.log('[VoiceRecognition] Stopping and unloading recording...');
-        await recordingToStop.stopAndUnloadAsync();
-        console.log('[VoiceRecognition] Recording stopped & unloaded');
+      console.log('[VoiceRecognition] Stopping recording...');
+      await audioRecorder.stop();
 
-        try {
-          uri = recordingToStop.getURI();
-          console.log('[VoiceRecognition] Got recording URI after stopAndUnloadAsync:', uri);
-        } catch (uriError) {
-          console.error('[VoiceRecognition] Error getting URI after stopAndUnloadAsync:', uriError);
-          // Try alternative properties just in case
-          try {
-            // @ts-ignore - internal/exposed on some SDK versions
-            uri = recordingToStop._uri || recordingToStop.uri;
-            console.log('[VoiceRecognition] Got URI via alternative method:', uri);
-          } catch (altError) {
-            console.error('[VoiceRecognition] Alternative URI method also failed:', altError);
-          }
-        }
-      } catch (stopError) {
-        console.error('[VoiceRecognition] Error in stopAndUnloadAsync:', stopError);
-        // As a last resort, try to get whatever URI is available
-        try {
-          uri = recordingToStop.getURI();
-          console.log('[VoiceRecognition] Got URI after stop error:', uri);
-        } catch (uriError) {
-          console.error('[VoiceRecognition] Could not get URI after stop error:', uriError);
-        }
-      }
-      
-      // Set URI and clear recording reference
+      const uri = audioRecorder.uri || null;
+      console.log('[VoiceRecognition] Recording stopped, URI:', uri);
+
       if (uri) {
         setRecordingUri(uri);
-        console.log('[VoiceRecognition] Recording URI stored:', uri);
       } else {
         console.warn('[VoiceRecognition] No URI available - recording may have been too short or failed');
       }
-      
-      // Clear both state and ref
-      recordingRef.current = null;
-      setRecording(null);
-      
+
       return uri;
-      
     } catch (err) {
       console.error('[VoiceRecognition] Error stopping recording:', err);
       setError(err.message);
-      setIsListening(false);
-      recordingRef.current = null;
-      setRecording(null);
       return null;
     }
   };
-  
+
   // Cleanup function to ensure recording is properly stopped
   const cleanup = async () => {
-    const recordingToCleanup = recordingRef.current || recording;
-    if (recordingToCleanup) {
-      await cleanupRecording(recordingToCleanup);
-      recordingRef.current = null;
-      setRecording(null);
-      setRecordingUri(null);
+    try {
+      if (recorderState.isRecording) {
+        await audioRecorder.stop();
+      }
+    } catch (err) {
+      console.log('[VoiceRecognition] Error during cleanup:', err?.message || err);
     }
-    setIsListening(false);
-    isCleaningUpRef.current = false;
+    setRecordingUri(null);
   };
-  
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Only use ref in cleanup to avoid stale closure issues
-      if (recordingRef.current) {
-        cleanupRecording(recordingRef.current).catch(console.error);
+      if (audioRecorder && recorderState.isRecording) {
+        audioRecorder.stop().catch(console.error);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const transcribeAudio = async (audioUri, appendToTranscript = false) => {
     try {
       setIsTranscribing(true);
       console.log('[VoiceRecognition] Transcribing audio:', audioUri);
-      
+
       // Send audio to backend for transcription using OpenAI Whisper
       const result = await transcribeAPI.transcribe(audioUri);
-      
+
       if (result.success && result.transcript) {
         console.log('[VoiceRecognition] Transcription successful:', result.transcript.substring(0, 100) + '...');
-        
+
         if (appendToTranscript) {
           // Append to existing transcript
           setTranscript(prev => {
@@ -261,7 +144,7 @@ export function useVoiceRecognition() {
           // Replace transcript
           setTranscript(result.transcript);
         }
-        
+
         return result.transcript;
       } else {
         console.warn('[VoiceRecognition] No transcript in response');
@@ -275,17 +158,14 @@ export function useVoiceRecognition() {
       setIsTranscribing(false);
     }
   };
-  
-  // Get current recording status for real-time transcription
+
+  // Get current recording status for real-time transcription.
+  // Kept async to preserve the original call signature; expo-audio's
+  // recorder state is actually reactive (via useAudioRecorderState above),
+  // so this just returns the latest snapshot.
   const getRecordingStatus = async () => {
-    const currentRecording = recordingRef.current || recording;
-    if (!currentRecording) return null;
-    try {
-      return await currentRecording.getStatusAsync();
-    } catch (error) {
-      console.error('[VoiceRecognition] Error getting recording status:', error);
-      return null;
-    }
+    if (!recorderState.isRecording) return null;
+    return recorderState;
   };
 
   const clearTranscript = () => {
@@ -298,7 +178,10 @@ export function useVoiceRecognition() {
     isListening,
     transcript,
     error,
-    recording,
+    // Truthy while actively recording, mirroring the old expo-av
+    // Recording-object-as-truthy-flag pattern that the rest of the
+    // app checks against (e.g. `if (voiceRecognition.recording)`).
+    recording: recorderState.isRecording ? audioRecorder : null,
     recordingUri,
     isTranscribing,
     startListening,
@@ -306,7 +189,7 @@ export function useVoiceRecognition() {
     transcribeAudio,
     getRecordingStatus,
     clearTranscript,
-    cleanup, // Export cleanup function
+    cleanup,
     setTranscript, // Allow manual setting
   };
 }

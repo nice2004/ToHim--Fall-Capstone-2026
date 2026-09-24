@@ -56,7 +56,7 @@ async function sendEmail({
     console.log('[Auth][Email dev fallback] RESEND_API_KEY/RESEND_FROM_EMAIL missing.');
     console.log('[Auth][Email dev fallback] To:', to);
     console.log('[Auth][Email dev fallback] Subject:', subject);
-    console.log('[Auth][Email dev fallback] Body omitted for safety.');
+    console.log('[Auth][Email dev fallback] Body:', text);
     return;
   }
 

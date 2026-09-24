@@ -429,7 +429,7 @@ export default function CalendarScreen({ navigation }) {
               activeOpacity={0.9}
             >
               <View style={styles.dayEventHeader}>
-                {event.event_type === 'session' && event.session_created_at && (
+                {event.event_type === 'Prayer Request' && event.session_created_at && (
                   <Text style={styles.dayEventTime}>
                     {formatTime(event.session_created_at)}
                   </Text>
@@ -707,7 +707,7 @@ export default function CalendarScreen({ navigation }) {
                     ]}
                   />
                   <Text style={styles.modalEventTypeText}>
-                    {currentEvent.event_type === 'session' ? 'Session Date' : 'Referenced Date'}
+                    {currentEvent.event_type === 'session' ? 'Prayer Request Date' : 'Referenced Date'}
                   </Text>
                 </View>
                 

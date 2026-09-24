@@ -148,7 +148,7 @@ export default function RemindMeScreen() {
             importantForAccessibility="no"
           />
           <Text style={styles.title} accessibilityRole="header">
-            Ask Tabbe
+            Ask Thim about your Prayers
           </Text>
           
           {/* Voice Response Toggle — ref on control only so coach cutout matches pill size */}
@@ -183,14 +183,14 @@ export default function RemindMeScreen() {
             style={styles.textInput}
             multiline
             numberOfLines={4}
-            placeholder="e.g. When was lauren planning on visiting?"
+            placeholder="e.g. When did I last pray for Lauren's job search?"
             placeholderTextColor={colors.placeholderText}
             value={query}
             onChangeText={setQuery}
             textAlignVertical="top"
             editable={!isProcessing}
-            accessibilityLabel="Question for Tabbe"
-            accessibilityHint="Ask about your people and sessions in plain language"
+            accessibilityLabel="Question for Thim"
+            accessibilityHint="Ask about your people and prayer requests in plain language"
           />
         </View>
 
@@ -202,7 +202,7 @@ export default function RemindMeScreen() {
             disabled={isProcessing}
             activeOpacity={0.88}
             accessibilityRole="button"
-            accessibilityLabel="Ask Tabbe"
+            accessibilityLabel="Ask Thim"
             accessibilityState={{ disabled: isProcessing }}
           >
             {isProcessing ? (
@@ -247,7 +247,7 @@ export default function RemindMeScreen() {
         {isProcessing && (
           <View style={styles.processingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.processingText}>Tabbe is thinking...</Text>
+            <Text style={styles.processingText}>Thim is thinking...</Text>
           </View>
         )}
 

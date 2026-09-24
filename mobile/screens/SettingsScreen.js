@@ -140,7 +140,7 @@ export default function SettingsScreen({ navigation }) {
             />
             <Text style={styles.infoText}>
               When Group View is enabled, you can organize people into groups. A person can belong to
-              multiple groups. You can also query groups in Ask Tabbe (for example, which of your mentors
+              multiple groups. You can also query groups in Ask Thim (for example, which of your mentors
               you are supposed to meet with soon).
             </Text>
           </View>
@@ -177,7 +177,7 @@ export default function SettingsScreen({ navigation }) {
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Privacy and data"
-            accessibilityHint="How Tabbe handles your information and security"
+            accessibilityHint="How Thim handles your information and security"
           >
             <View style={styles.accountRowTextWrap}>
               <Text style={styles.accountRowTitle}>Privacy & data</Text>
