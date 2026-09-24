@@ -1,117 +1,124 @@
-# Tabbe - Relationship Tracker
+# ToHim
 
-A mobile application to help you keep track of your relationships and interactions with friends, family, and acquaintances.
+ToHim is a mobile app for prayer-request tracking. It helps people intentionally
+record their prayer requests instead of relying on memory or writing them down
+somewhere and never returning to them: **record prayers → organize them →
+return to them consistently → track when they are answered → reflect on prayer
+over time.**
 
-## Features
+This is a CS-195 capstone project.
 
-- **Session Recording**: Start a session and describe an interaction you just had
-- **Person Management**: Automatically creates tabs for each person you mention
-- **Smart Reminders**: Ask Tabbe questions about your relationships and get helpful reminders
-- **Voice & Text**: Both voice input and text responses for natural interaction
-- **AI-Powered**: Uses AI to understand conversations and answer queries intelligently
+## Current status
 
-## Prerequisites
+ToHim began as a general relationship/interaction tracker (internally, "Tabbe")
+and has since been repurposed toward prayer tracking. The app is in
+**Alpha-stage development**. The features below are verified against the
+current source code, not the eventual product vision — see
+[Planned, not yet implemented](#planned-not-yet-implemented) for what's still
+ahead.
 
-- **Node.js (v14 or higher)** - [Installation Guide](INSTALL_NODE.md)
-- npm (comes with Node.js)
-- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
-- For mobile development: Expo Go app on your phone, or iOS Simulator / Android Emulator
+## Implemented features
 
-> **Note**: If you get "npm: command not found", you need to install Node.js first. See [INSTALL_NODE.md](INSTALL_NODE.md) for detailed instructions. If you have `mise` installed, you can quickly install Node.js with: `mise install node@lts && mise activate node@lts`
+- **Record a prayer request** by voice or text (`mobile/screens/SessionScreen.js`).
+  OpenAI is used to parse the description, extract any person mentioned, and
+  generate structured notes.
+- **People associated with prayer requests**: a profile is created automatically
+  for each person you mention, and you can browse people and their linked
+  requests (`PeopleScreen`, `PersonDetailScreen`).
+- **Calendar view** of recorded prayer requests by date (`CalendarScreen`).
+- **Natural-language Q&A over your prayers and people** — the "Ask ToHim" tab
+  lets you ask questions like "what did I pray for Joel about last week?" and
+  get an answer grounded in your own recorded notes (`RemindMeScreen`,
+  `server/services/aiService.js`, backed by vector search over your notes).
+- **Authentication and profile setup**: register/login/verify, initial profile
+  setup, and account/settings/privacy screens.
+- **Groups**: people can be organized into groups, and you can ask questions
+  about a whole group at once.
+
+## Planned, not yet implemented
+
+These are part of ToHim's direction but are **not** present in the current
+code (verified: no matching schema, fields, or UI):
+
+- Marking a prayer request as answered / unanswered, or filtering by that status
+- Attaching or searching Bible verses
+- Dedicated prayer categories (today there's only the general-purpose "groups"
+  feature carried over from the earlier app)
+- Prayer reminders or scheduled notifications
+- Weekly/monthly prayer analytics
+- Sharing prayer requests with other users
+
+## Technology stack
+
+- **Mobile**: React Native + Expo
+- **Backend**: Node.js + Express
+- **Database**: SQLite for local development; Postgres (Supabase) is supported
+  for production, with migration scripts under `server/scripts/`
+- **AI**: OpenAI API for extracting structured data from prayer request text
+  and for answering natural-language questions; a vector store
+  (`server/services/vectorStore.js`, Pinecone) backs semantic search over notes
 
 ## Setup
 
-### Backend Setup
+### Prerequisites
+
+- Node.js (v18+) and npm
+- An OpenAI API key ([get one here](https://platform.openai.com/api-keys))
+- For mobile development: the Expo Go app on your phone, or an iOS
+  Simulator/Android Emulator
+
+### Backend
 
 1. Install dependencies:
-```bash
-npm install
+   ```bash
+   npm install
+   ```
+2. Create a `.env` file in the repository root:
+   ```env
+   OPENAI_API_KEY=your_openai_api_key_here
+   JWT_SECRET=your_jwt_signing_secret_here
+   PORT=3000
+   ```
+   (`Database_URL` is also read if you want to point at a Postgres/Supabase
+   database instead of the default local SQLite file.)
+3. Start the backend:
+   ```bash
+   npm start
+   # or, with auto-reload:
+   npm run dev
+   ```
+   The server listens on `http://localhost:3000` by default. Keep it running
+   while using the mobile app.
+
+### Mobile app
+
+1. From `mobile/`, install dependencies:
+   ```bash
+   cd mobile
+   npm install
+   ```
+2. Point the app at your backend by setting the API URL in
+   `mobile/services/api.js` (or `expo.extra.apiBaseUrl` in `mobile/app.json`):
+   - iOS Simulator: `http://localhost:3000/api` (default)
+   - Android Emulator: `http://10.0.2.2:3000/api`
+   - Physical device: `http://YOUR_COMPUTER_IP:3000/api`
+3. Start the Expo dev server:
+   ```bash
+   npm start
+   ```
+4. Scan the QR code with Expo Go, or press `i` (iOS simulator), `a` (Android
+   emulator), or `w` (web).
+
+## Project structure
+
 ```
-
-2. Create a `.env` file in the root directory:
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-PORT=3000
+server/           Express backend (SQLite/Postgres, routes, AI service)
+mobile/           Expo/React Native app (screens, components, services)
+docs/             Public support/privacy pages
+scripts/          App Store screenshot generation and other tooling
 ```
-
-3. Start the backend server:
-```bash
-npm start
-# or for development with auto-reload:
-npm run dev
-```
-
-The server will start on `http://localhost:3000`. Keep this running while using the mobile app.
-
-### Mobile App Setup
-
-1. Navigate to the mobile directory:
-```bash
-cd mobile
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. **Important**: Configure the API URL for your device:
-   - Open `mobile/services/api.js`
-   - For **iOS Simulator**: Use `http://localhost:3000/api` (default)
-   - For **Android Emulator**: Change to `http://10.0.2.2:3000/api`
-   - For **Physical Device**: Change to `http://YOUR_COMPUTER_IP:3000/api`
-     - Find your IP: `ifconfig` (Mac/Linux) or `ipconfig` (Windows)
-     - Example: `http://192.168.1.100:3000/api`
-
-4. Start the Expo development server:
-```bash
-npm start
-```
-
-5. Scan the QR code with Expo Go app on your phone, or press:
-   - `i` for iOS simulator
-   - `a` for Android emulator
-   - `w` for web browser
-
-## Usage
-
-### Recording a Session
-
-1. Open the app and tap **"Start New Session"** on the home screen
-2. Describe the interaction you just had. For example:
-   > "I just got off the phone with Joel Nakazawa. He is currently in Turkey, preparing to return to Westmont for his Junior year. We spoke about how he is feeling about this upcoming track and field season, he expressed excitement about how he is going to perform. His return flight is going to be on the 9th of January."
-3. Tap **"Submit"** - Tabbe will automatically:
-   - Extract the person's name
-   - Create a profile for them (if new)
-   - Store the information
-   - Generate structured notes
-
-### Viewing People
-
-1. Go to the **"People"** tab to see all people you've tracked
-2. Tap on any person to see their details, sessions, and stored information
-3. From a person's detail page, tap **"Record New Session"** to add more information about them
-
-### Asking Questions
-
-1. Go to the **"Remind Me"** tab
-2. Ask Tabbe anything about your relationships, for example:
-   - "Hey I'm going to be grabbing lunch with Joel later today, could you help remind me what we talked about on our last phonecall?"
-   - "Hey could you remind me of what day Joel was scheduled to fly back to school"
-   - "Who was my friend who is going to be flying in on the 9th of January?"
-3. Tabbe will provide both written and spoken responses
-4. If Tabbe needs more information, it will ask follow-up questions
-
-## Technology Stack
-
-- **Frontend**: React Native with Expo
-- **Backend**: Node.js with Express
-- **Database**: SQLite
-- **AI**: OpenAI API for NLP processing
 
 ## Deployment
 
-For TestFlight deployment, see:
-- [TESTFLIGHT_GUIDE.md](TESTFLIGHT_GUIDE.md) - Complete guide
-- [mobile/QUICK_START_TESTFLIGHT.md](mobile/QUICK_START_TESTFLIGHT.md) - Quick start
-
+For TestFlight distribution, see [TESTFLIGHT_GUIDE.md](TESTFLIGHT_GUIDE.md) and
+[mobile/QUICK_START_TESTFLIGHT.md](mobile/QUICK_START_TESTFLIGHT.md).
