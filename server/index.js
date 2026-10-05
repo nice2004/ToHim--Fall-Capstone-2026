@@ -43,6 +43,7 @@ const transcribeRoutes = require('./routes/transcribe');
 const groupRoutes = require('./routes/groups');
 const calendarRoutes = require('./routes/calendar');
 const metricsRoutes = require('./routes/metrics');
+const bibleRoutes = require('./routes/bible');
 
 // Root API endpoint
 app.get('/api', (req, res) => {
@@ -53,7 +54,13 @@ app.get('/api', (req, res) => {
       health: 'GET /api/health',
       sessions: {
         create: 'POST /api/sessions',
-        getByPerson: 'GET /api/sessions/person/:personId'
+        getByPerson: 'GET /api/sessions/person/:personId',
+        markAnswered: 'PATCH /api/sessions/:sessionId/answered',
+        addVerse: 'POST /api/sessions/:sessionId/verses',
+        deleteVerse: 'DELETE /api/sessions/:sessionId/verses/:verseId'
+      },
+      bible: {
+        search: 'GET /api/bible/search?q='
       },
           persons: {
             getAll: 'GET /api/persons',
@@ -83,6 +90,7 @@ app.use('/api/transcribe', transcribeRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/bible', bibleRoutes);
 
 // Log route registration
 console.log('Routes registered:');
@@ -90,12 +98,16 @@ console.log('  GET  /api');
 console.log('  GET  /api/health');
 console.log('  POST /api/sessions');
 console.log('  GET  /api/sessions/person/:personId');
+console.log('  PATCH /api/sessions/:sessionId/answered');
+console.log('  POST /api/sessions/:sessionId/verses');
+console.log('  DELETE /api/sessions/:sessionId/verses/:verseId');
 console.log('  GET  /api/persons');
 console.log('  GET  /api/persons/:id');
 console.log('  POST /api/persons');
 console.log('  POST /api/queries');
 console.log('  POST /api/transcribe');
 console.log('  GET  /api/metrics/query-latency');
+console.log('  GET  /api/bible/search');
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -93,6 +93,45 @@ async function ensureAuthSchema() {
   return authSchemaReadyPromise;
 }
 
+let sessionExtensionsReadyPromise = null;
+
+// Adds answered-status columns to `sessions` and creates `session_verses`.
+// Lazily run (same pattern as ensureAuthSchema) since there's no migration
+// runner for these tables — they were originally created once by
+// server/scripts/migrate-sqlite-data-to-supabase.js and never touched again.
+async function ensureSessionExtensionsSchema() {
+  if (!sessionExtensionsReadyPromise) {
+    sessionExtensionsReadyPromise = (async () => {
+      await pool.query(`
+        ALTER TABLE sessions
+        ADD COLUMN IF NOT EXISTS answered BOOLEAN NOT NULL DEFAULT FALSE
+      `);
+      await pool.query(`
+        ALTER TABLE sessions
+        ADD COLUMN IF NOT EXISTS answered_at TIMESTAMPTZ
+      `);
+      await pool.query(`
+        ALTER TABLE sessions
+        ADD COLUMN IF NOT EXISTS answered_note TEXT
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS session_verses (
+          id SERIAL PRIMARY KEY,
+          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          reference TEXT NOT NULL,
+          verse_text TEXT NOT NULL,
+          translation TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+    })().catch((err) => {
+      sessionExtensionsReadyPromise = null;
+      throw err;
+    });
+  }
+  return sessionExtensionsReadyPromise;
+}
+
 // User helper functions mirroring the SQLite dbHelpers API where needed
 
 // Some environments were migrated with `id INTEGER PRIMARY KEY` (no DEFAULT),
@@ -460,6 +499,15 @@ async function getAllPersonData(userId, personId) {
     getSessionsByPerson(userId, personId),
     getPersonMetadata(userId, personId),
   ]);
+  const verses = await getVersesBySessionIds(sessions.map((s) => s.id));
+  const versesBySession = new Map();
+  for (const v of verses) {
+    if (!versesBySession.has(v.session_id)) versesBySession.set(v.session_id, []);
+    versesBySession.get(v.session_id).push(v);
+  }
+  for (const session of sessions) {
+    session.verses = versesBySession.get(session.id) || [];
+  }
   return { person, sessions, metadata };
 }
 
@@ -902,6 +950,72 @@ async function updateSession(userId, sessionId, { notes, transcript }) {
   return result.rows[0] || null;
 }
 
+async function markSessionAnswered(userId, sessionId, { answered, answeredNote }) {
+  await ensureSessionExtensionsSchema();
+  const existing = await getSessionById(userId, sessionId);
+  if (!existing) throw new Error('Session not found or access denied');
+
+  const result = await pool.query(
+    `
+    UPDATE sessions
+    SET answered = $1,
+        answered_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+        answered_note = CASE WHEN $1 THEN $2 ELSE NULL END
+    WHERE id = $3 AND user_id = $4
+    RETURNING *
+    `,
+    [answered === true, answered === true ? (answeredNote || null) : null, sessionId, userId]
+  );
+  return result.rows[0] || null;
+}
+
+async function getVersesBySessionIds(sessionIds) {
+  if (!sessionIds || sessionIds.length === 0) return [];
+  await ensureSessionExtensionsSchema();
+  const result = await pool.query(
+    `
+    SELECT *
+    FROM session_verses
+    WHERE session_id = ANY($1::int[])
+    ORDER BY created_at ASC
+    `,
+    [sessionIds]
+  );
+  return result.rows;
+}
+
+async function addSessionVerse(userId, sessionId, { reference, text, translation }) {
+  await ensureSessionExtensionsSchema();
+  const session = await getSessionById(userId, sessionId);
+  if (!session) throw new Error('Session not found or access denied');
+
+  const result = await pool.query(
+    `
+    INSERT INTO session_verses (session_id, reference, verse_text, translation)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+    `,
+    [sessionId, reference, text, translation || null]
+  );
+  return result.rows[0];
+}
+
+async function deleteSessionVerse(userId, sessionId, verseId) {
+  await ensureSessionExtensionsSchema();
+  const session = await getSessionById(userId, sessionId);
+  if (!session) throw new Error('Session not found or access denied');
+
+  const result = await pool.query(
+    `
+    DELETE FROM session_verses
+    WHERE id = $1 AND session_id = $2
+    RETURNING id
+    `,
+    [verseId, sessionId]
+  );
+  return result.rows.length > 0;
+}
+
 async function transferSessionPerson(userId, sessionId, newPersonId) {
   const session = await getSessionById(userId, sessionId);
   if (!session) throw new Error('Session not found or access denied');
@@ -1129,6 +1243,10 @@ module.exports = {
   updateCalendarEvent,
   setPersonMetadata,
   updateSession,
+  markSessionAnswered,
+  getVersesBySessionIds,
+  addSessionVerse,
+  deleteSessionVerse,
   transferSessionPerson,
   getGroupById,
   createGroup,

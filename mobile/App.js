@@ -12,6 +12,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import HomeScreen from './screens/HomeScreen';
 import PeopleScreen from './screens/PeopleScreen';
 import PersonDetailScreen from './screens/PersonDetailScreen';
+import PrayerRequestDetailScreen from './screens/PrayerRequestDetailScreen';
+import VerseSearchScreen from './screens/VerseSearchScreen';
 import RemindMeScreen from './screens/RemindMeScreen';
 import SessionScreen from './screens/SessionScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -46,6 +48,12 @@ function PeopleStack() {
       <Stack.Screen name="PeopleList" component={PeopleScreen} options={{ title: 'People' }} />
       <Stack.Screen name="PersonDetail" component={PersonDetailScreen} options={{ title: 'Person Details' }} />
       <Stack.Screen name="NewSession" component={SessionScreen} options={{ title: 'Record Prayer Request' }} />
+      <Stack.Screen
+        name="PrayerRequestDetail"
+        component={PrayerRequestDetailScreen}
+        options={{ title: 'Prayer Request' }}
+      />
+      <Stack.Screen name="VerseSearch" component={VerseSearchScreen} options={{ title: 'Add a Verse' }} />
     </Stack.Navigator>
   );
 }

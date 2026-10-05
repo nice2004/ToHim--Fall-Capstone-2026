@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { personAPI, sessionAPI } from '../services/api';
 import {
   cachePersonDetail,
@@ -81,9 +82,14 @@ export default function PersonDetailScreen({ route, navigation }) {
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [offlineNotice, setOfflineNotice] = useState(null);
 
-  useEffect(() => {
-    loadPersonData();
-  }, [personId]);
+  // Runs on initial mount and again whenever this screen regains focus
+  // (e.g. returning from the prayer request detail screen), so
+  // answered-status and verse changes made there show up here.
+  useFocusEffect(
+    React.useCallback(() => {
+      loadPersonData();
+    }, [personId])
+  );
 
   const peopleBackBar = (
     <View style={styles.topNavBar}>
@@ -454,41 +460,75 @@ export default function PersonDetailScreen({ route, navigation }) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Prayer Requests ({sessions.length})</Text>
             {sessions.map((session, index) => (
-              <GlassSurface key={session.id} style={styles.sessionCard}>
-                <View style={styles.sessionHeader}>
-                  <Ionicons name="time" size={16} color="#666" />
-                  <Text style={styles.sessionDate}>
-                    {parseUtcTimestamp(session.created_at).toLocaleString()}
-                  </Text>
-                  <View style={styles.sessionActions}>
-                    <TouchableOpacity
-                      style={styles.transferButton}
-                      onPress={() => openEditSessionModal(session)}
+              <TouchableOpacity
+                key={session.id}
+                activeOpacity={0.8}
+                onPress={() =>
+                  navigation.navigate('PrayerRequestDetail', {
+                    session,
+                    personId: person.id,
+                    personName: person.full_name,
+                  })
+                }
+              >
+                <GlassSurface style={styles.sessionCard}>
+                  <View style={styles.sessionHeader}>
+                    <View
+                      style={[
+                        styles.statusPill,
+                        { backgroundColor: session.answered ? '#34C759' : colors.primarySoft },
+                      ]}
                     >
-                      <Ionicons name="pencil" size={16} color={colors.primary} />
-                      <Text style={styles.transferButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.transferButton, { marginLeft: 6 }]}
-                      onPress={() => openTransferModal(session)}
-                    >
-                      <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
-                      <Text style={styles.transferButtonText}>Move</Text>
-                    </TouchableOpacity>
+                      <Text
+                        style={[
+                          styles.statusPillText,
+                          { color: session.answered ? 'white' : colors.primary },
+                        ]}
+                      >
+                        {session.answered ? 'Answered' : 'Active'}
+                      </Text>
+                    </View>
+                    <Ionicons name="time" size={16} color="#666" style={{ marginLeft: 8 }} />
+                    <Text style={styles.sessionDate}>
+                      {parseUtcTimestamp(session.created_at).toLocaleString()}
+                    </Text>
+                    <View style={styles.sessionActions}>
+                      <TouchableOpacity
+                        style={styles.transferButton}
+                        onPress={() => openEditSessionModal(session)}
+                      >
+                        <Ionicons name="pencil" size={16} color={colors.primary} />
+                        <Text style={styles.transferButtonText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.transferButton, { marginLeft: 6 }]}
+                        onPress={() => openTransferModal(session)}
+                      >
+                        <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
+                        <Text style={styles.transferButtonText}>Move</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-                {(() => {
-                  const combined = [session.notes, session.transcript]
-                    .filter((t) => typeof t === 'string' && t.trim().length > 0)
-                    .join('\n\n');
-                  if (!combined) return null;
-                  return (
-                    <Markdown style={markdownStyles}>
-                      {normalizeMarkdownForDisplay(combined)}
-                    </Markdown>
-                  );
-                })()}
-              </GlassSurface>
+                  {(() => {
+                    const combined = [session.notes, session.transcript]
+                      .filter((t) => typeof t === 'string' && t.trim().length > 0)
+                      .join('\n\n');
+                    if (!combined) return null;
+                    return (
+                      <Markdown style={markdownStyles}>
+                        {normalizeMarkdownForDisplay(combined)}
+                      </Markdown>
+                    );
+                  })()}
+                  {session.verses && session.verses.length > 0 && (
+                    <Text style={styles.verseHint}>
+                      <Ionicons name="book-outline" size={13} color={colors.textSecondary} />
+                      {'  '}
+                      {session.verses.length} verse{session.verses.length === 1 ? '' : 's'} attached
+                    </Text>
+                  )}
+                </GlassSurface>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -968,6 +1008,21 @@ function createStyles(colors) {
   sessionDate: {
     fontSize: 12,
     color: '#666',
+    marginLeft: 6,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: RADIUS.chip,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  verseHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: colors.textSecondary,
   },
   sessionActions: {
     marginLeft: 'auto',

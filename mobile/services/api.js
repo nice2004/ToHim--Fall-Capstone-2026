@@ -283,6 +283,43 @@ export const sessionAPI = {
     }
   },
 
+  markAnswered: async (sessionId, { answered, answeredNote }) => {
+    try {
+      const response = await api.patch(`/sessions/${sessionId}/answered`, {
+        answered,
+        answeredNote,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[sessionAPI] Error marking session answered:', error);
+      throw error;
+    }
+  },
+
+  addVerse: async (sessionId, { reference, text, translation }) => {
+    try {
+      const response = await api.post(`/sessions/${sessionId}/verses`, {
+        reference,
+        text,
+        translation,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[sessionAPI] Error adding verse:', error);
+      throw error;
+    }
+  },
+
+  deleteVerse: async (sessionId, verseId) => {
+    try {
+      const response = await api.delete(`/sessions/${sessionId}/verses/${verseId}`);
+      return response.data;
+    } catch (error) {
+      console.error('[sessionAPI] Error deleting verse:', error);
+      throw error;
+    }
+  },
+
   resolveMulti: async (transcript, entities) => {
     try {
       const response = await api.post('/sessions/multi-resolve', {
@@ -380,6 +417,18 @@ export const personAPI = {
       return response.data;
     } catch (error) {
       console.error('Error fetching character summary:', error);
+      throw error;
+    }
+  },
+};
+
+export const bibleAPI = {
+  search: async (query) => {
+    try {
+      const response = await api.get('/bible/search', { params: { q: query } });
+      return response.data;
+    } catch (error) {
+      console.error('[bibleAPI] Error searching verses:', error);
       throw error;
     }
   },

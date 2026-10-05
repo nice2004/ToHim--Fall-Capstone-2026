@@ -6,11 +6,10 @@ somewhere and never returning to them.
 
 The long-term vision is: **record prayers → organize them → return to them
 consistently → track when they are answered → reflect on prayer over time.**
-Not all of this is built yet — in particular, tracking whether a prayer has
-been answered is still planned, not implemented (see
-[Planned, not yet implemented](#planned-not-yet-implemented) below). What's
-actually working today is recording, organizing, and returning to prayer
-requests; see [Implemented features](#implemented-features).
+Not all of this is built yet — see [Planned, not yet implemented](#planned-not-yet-implemented)
+below for what's still ahead, and [Implemented features](#implemented-features)
+for what's actually working today, including marking a prayer answered and
+attaching Bible verses.
 
 This is a CS-195 capstone project.
 
@@ -40,14 +39,25 @@ ahead.
   setup, and account/settings/privacy screens.
 - **Groups**: people can be organized into groups, and you can ask questions
   about a whole group at once.
+- **Mark a prayer request answered or unanswered**, with an optional note on
+  how it was answered. Tap a prayer request card in a person's profile to
+  open its detail screen (`PrayerRequestDetailScreen`), where the status is
+  shown and can be toggled. Persisted in Postgres (`sessions.answered`,
+  `answered_at`, `answered_note`), so it survives app/backend restarts.
+- **Attach a Bible verse to a prayer request**: search by keyword (e.g.
+  "peace") or reference (e.g. "Philippians 4:6-7") from the request detail
+  screen (`VerseSearchScreen`), then add a result to the request. Verses are
+  proxied server-side through [api.bible](https://scripture.api.bible/) (see
+  Setup below) and stored in a `session_verses` table — the API key never
+  reaches the mobile app. Requires `BIBLE_API_KEY`/`BIBLE_API_BIBLE_ID` to be
+  configured; without them, search returns a clear "not configured" message
+  instead of failing silently.
 
 ## Planned, not yet implemented
 
 These are part of ToHim's direction but are **not** present in the current
 code (verified: no matching schema, fields, or UI):
 
-- Marking a prayer request as answered / unanswered, or filtering by that status
-- Attaching or searching Bible verses
 - Dedicated prayer categories (today there's only the general-purpose "groups"
   feature carried over from the earlier app)
 - Prayer reminders or scheduled notifications
@@ -83,16 +93,23 @@ code (verified: no matching schema, fields, or UI):
    ```bash
    npm install
    ```
-2. Create a `.env` file in the repository root:
+2. Create a `.env` file in the repository root (see `.env.example`):
    ```env
    DATABASE_URL=your_postgres_supabase_connection_string_here
    OPENAI_API_KEY=your_openai_api_key_here
    JWT_SECRET=your_jwt_signing_secret_here
    PORT=3000
+   BIBLE_API_KEY=your_api_bible_key_here
+   BIBLE_API_BIBLE_ID=your_chosen_bible_id_here
    ```
    `DATABASE_URL` is required — `server/postgres.js` exits immediately on
    startup if it isn't set. There is no SQLite fallback for the app's actual
-   functionality.
+   functionality. `BIBLE_API_KEY`/`BIBLE_API_BIBLE_ID` are only needed for the
+   Bible verse search feature; without them the rest of the app still runs,
+   and verse search returns a clear configuration error instead of crashing.
+   Get a free key at [api.bible](https://scripture.api.bible/) (Starter plan:
+   5,000 calls/month, non-commercial use) and pick a Bible ID from
+   `GET /v1/bibles` in their docs (e.g. a public-domain KJV translation).
 3. Start the backend:
    ```bash
    npm start

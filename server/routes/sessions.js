@@ -754,6 +754,77 @@ router.put('/:sessionId', async (req, res) => {
   }
 });
 
+// Mark a prayer request answered or unanswered, with an optional note on how it was answered
+router.patch('/:sessionId/answered', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { answered, answeredNote } = req.body;
+    const userId = req.user.id;
+
+    if (typeof answered !== 'boolean') {
+      return res.status(400).json({ error: 'answered must be a boolean' });
+    }
+
+    const session = await userRepo.markSessionAnswered(userId, sessionId, {
+      answered,
+      answeredNote,
+    });
+    res.json({ success: true, session });
+  } catch (error) {
+    console.error('[Sessions] Error marking session answered:', error.message);
+    res.status(error.message.includes('not found') ? 404 : 500).json({
+      error: 'Failed to update answered status',
+      details: error.message,
+    });
+  }
+});
+
+// Attach a Bible verse to a prayer request
+router.post('/:sessionId/verses', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { reference, text, translation } = req.body;
+    const userId = req.user.id;
+
+    if (!reference || !text) {
+      return res.status(400).json({ error: 'reference and text are required' });
+    }
+
+    const verse = await userRepo.addSessionVerse(userId, sessionId, {
+      reference,
+      text,
+      translation,
+    });
+    res.status(201).json({ success: true, verse });
+  } catch (error) {
+    console.error('[Sessions] Error adding verse:', error.message);
+    res.status(error.message.includes('not found') ? 404 : 500).json({
+      error: 'Failed to add verse',
+      details: error.message,
+    });
+  }
+});
+
+// Remove a verse from a prayer request
+router.delete('/:sessionId/verses/:verseId', async (req, res) => {
+  try {
+    const { sessionId, verseId } = req.params;
+    const userId = req.user.id;
+
+    const deleted = await userRepo.deleteSessionVerse(userId, sessionId, verseId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Verse not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Sessions] Error deleting verse:', error.message);
+    res.status(error.message.includes('not found') ? 404 : 500).json({
+      error: 'Failed to delete verse',
+      details: error.message,
+    });
+  }
+});
+
 // Delete a session (and its calendar events); remove vector chunks
 router.delete('/:sessionId', async (req, res) => {
   try {
