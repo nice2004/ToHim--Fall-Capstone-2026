@@ -13,7 +13,6 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { personAPI, sessionAPI } from '../services/api';
@@ -27,6 +26,9 @@ import { getLastSyncAt } from '../services/syncService';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
+import { getRequestNote } from '../utils/prayerText';
+
+const ANSWERED_COLOR = '#34C759';
 
 // SQLite stores CURRENT_TIMESTAMP as "YYYY-MM-DD HH:MM:SS" in UTC with no timezone marker.
 // Without explicit 'Z', JS (V8 / Hermes) parses space-separated strings as LOCAL time,
@@ -41,22 +43,36 @@ function parseUtcTimestamp(str) {
   return new Date(s.replace(' ', 'T') + 'Z');
 }
 
-function normalizeMarkdownForDisplay(text) {
+// Plain-text preview for the note cards: the full markdown lives on the detail screen,
+// so here we just flatten headings/emphasis and turn list markers into bullets.
+function toPlainPreview(text) {
   if (!text || typeof text !== 'string') return '';
-  // Fix common "bullet immediately followed by bold" formatting like "-**Visa:**"
-  // CommonMark expects "- **Visa:**"
   return text
-    .replace(/^(\s*[-*+])(?=\S)/gm, '$1 ')
-    .replace(/^(\s*\d+\.)(?=\S)/gm, '$1 ')
+    .replace(/^\s*#{1,6}\s*/gm, '')
+    .replace(/\*\*|__/g, '')
+    .replace(/^(\s*)[-*+]\s*/gm, '$1• ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function formatShortDate(str) {
+  return parseUtcTimestamp(str).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatNoteDate(str) {
+  const d = parseUtcTimestamp(str);
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${formatShortDate(str)} · ${time}`;
 }
 
 export default function PersonDetailScreen({ route, navigation }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const markdownStyles = useMemo(() => createMarkdownStyles(colors), [colors]);
   const { personId } = route.params;
-  const currentPersonId = String(personId);
   const [personData, setPersonData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -67,11 +83,9 @@ export default function PersonDetailScreen({ route, navigation }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferSession, setTransferSession] = useState(null);
-  const [transferSearchQuery, setTransferSearchQuery] = useState('');
-  const [transferPersons, setTransferPersons] = useState([]);
-  const [isTransferring, setIsTransferring] = useState(false);
+  const [answeringSession, setAnsweringSession] = useState(null);
+  const [answeredNoteInput, setAnsweredNoteInput] = useState('');
+  const [isSavingAnswered, setIsSavingAnswered] = useState(false);
 
   const [editingSession, setEditingSession] = useState(null);
   const [editTranscript, setEditTranscript] = useState('');
@@ -233,28 +247,67 @@ export default function PersonDetailScreen({ route, navigation }) {
     }
   };
 
-  const openTransferModal = async (session) => {
+  const applySessionUpdate = (updated) => {
+    setPersonData((prev) => {
+      if (!prev?.sessions) return prev;
+      return {
+        ...prev,
+        sessions: prev.sessions.map((s) =>
+          String(s.id) === String(updated.id) ? { ...s, ...updated } : s
+        ),
+      };
+    });
+  };
+
+  const openAnsweredModal = (session) => {
+    setAnsweredNoteInput('');
+    setAnsweringSession(session);
+  };
+
+  const confirmMarkAnswered = async () => {
+    if (!answeringSession) return;
+    setIsSavingAnswered(true);
     try {
-      // Load all persons so user can choose a new one
-      const data = await personAPI.getAll();
-      // Exclude the current person from the list
-      const others = (data.persons || []).filter((p) => String(p.id) !== currentPersonId);
-      setTransferPersons(others);
-      setTransferSession(session);
-      setTransferSearchQuery('');
-      setShowTransferModal(true);
+      const result = await sessionAPI.markAnswered(answeringSession.id, {
+        answered: true,
+        answeredNote: answeredNoteInput.trim() || undefined,
+      });
+      applySessionUpdate({ id: answeringSession.id, answered: true, ...result?.session });
+      setAnsweringSession(null);
+      Keyboard.dismiss();
     } catch (error) {
-      console.error('Error loading persons for transfer:', error);
-      Alert.alert('Error', 'Failed to load people for transfer');
+      Alert.alert('Error', error.message || 'Failed to mark prayer request as answered');
+    } finally {
+      setIsSavingAnswered(false);
     }
   };
 
+  const confirmMarkUnanswered = (session) => {
+    Alert.alert('Mark as unanswered?', 'This moves the request back to your active prayers.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Mark unanswered',
+        onPress: async () => {
+          try {
+            const result = await sessionAPI.markAnswered(session.id, { answered: false });
+            applySessionUpdate({ id: session.id, answered: false, ...result?.session });
+          } catch (error) {
+            Alert.alert('Error', error.message || 'Failed to update prayer request');
+          }
+        },
+      },
+    ]);
+  };
+
+  // VerseSearch saves the verse itself; this screen reloads on focus when it returns.
+  const openAddVerse = (session) => {
+    navigation.navigate('VerseSearch', { sessionId: session.id });
+  };
+
   const openEditSessionModal = (session) => {
-    // Show combined notes + transcript so the user edits the full visible content
-    const combined = [session.notes, session.transcript]
-      .filter((t) => typeof t === 'string' && t.trim().length > 0)
-      .join('\n\n');
-    setEditTranscript(combined);
+    // Edit the note shown on the card. The original transcript is left as recorded —
+    // writing the combined text into both fields is what made content appear twice.
+    setEditTranscript(getRequestNote(session));
     setEditingSession(session);
   };
 
@@ -262,10 +315,7 @@ export default function PersonDetailScreen({ route, navigation }) {
     if (!editingSession) return;
     setIsSavingSession(true);
     try {
-      await sessionAPI.update(editingSession.id, {
-        notes: editTranscript,
-        transcript: editTranscript,
-      });
+      await sessionAPI.update(editingSession.id, { notes: editTranscript });
       setEditingSession(null);
       setEditTranscript('');
       // Don't block UI on a refresh request; if this hangs/fails it can trap the user in the modal.
@@ -326,52 +376,6 @@ export default function PersonDetailScreen({ route, navigation }) {
     }
   };
 
-  const handleTransferToPerson = async (targetPersonId) => {
-    if (!transferSession || !targetPersonId) return;
-    if (String(targetPersonId) === currentPersonId) {
-      Alert.alert('Invalid Transfer', 'Please choose a different person.');
-      return;
-    }
-    setIsTransferring(true);
-    try {
-      const result = await sessionAPI.transfer(transferSession.id, targetPersonId);
-      if (result && result.success) {
-        // Defensive verification: ensure session now appears under target person.
-        const targetSessions = await sessionAPI.getByPerson(targetPersonId);
-        const moved = (targetSessions?.sessions || []).some(
-          (session) => String(session.id) === String(transferSession.id)
-        );
-        if (!moved) {
-          throw new Error('Transfer completed but session was not found for the selected person.');
-        }
-
-        Alert.alert(
-          'Prayer Request Transferred',
-          `This prayer request was moved to ${result.newPerson?.full_name || 'the selected person'}.`,
-          [
-            {
-              text: 'View Person',
-              onPress: () => navigation.replace('PersonDetail', { personId: targetPersonId }),
-            },
-            { text: 'OK' },
-          ]
-        );
-        setShowTransferModal(false);
-        setTransferSession(null);
-        setTransferSearchQuery('');
-        // Reload this person's data so the session disappears from the list
-        await loadPersonData();
-      } else {
-        Alert.alert('Error', 'Failed to transfer session');
-      }
-    } catch (error) {
-      console.error('Error transferring session:', error);
-      Alert.alert('Error', error.message || 'Failed to transfer session');
-    } finally {
-      setIsTransferring(false);
-    }
-  };
-
   const confirmDelete = () => {
     Alert.alert(
       'Delete Person',
@@ -414,11 +418,16 @@ export default function PersonDetailScreen({ route, navigation }) {
   }
 
   const { person, sessions, metadata } = personData;
+  const answeredCount = (sessions || []).filter((s) => s.answered).length;
+  const activeCount = (sessions || []).length - answeredCount;
 
   return (
     <SafeAreaView style={styles.container}>
       {peopleBackBar}
-      <ScrollView style={styles.scrollFlex} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={styles.scrollContent}
+      >
         <GlassSurface style={styles.header}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
@@ -435,8 +444,26 @@ export default function PersonDetailScreen({ route, navigation }) {
             </TouchableOpacity>
           </View>
           <Text style={styles.date}>
-            Added: {parseUtcTimestamp(person.created_at).toLocaleDateString()}
+            Added {formatShortDate(person.created_at)}
           </Text>
+          {sessions && sessions.length > 0 && (
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{sessions.length}</Text>
+                <Text style={styles.statLabel}>Requests</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{activeCount}</Text>
+                <Text style={styles.statLabel}>Active</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statNumber, { color: ANSWERED_COLOR }]}>{answeredCount}</Text>
+                <Text style={styles.statLabel}>Answered</Text>
+              </View>
+            </View>
+          )}
         </GlassSurface>
         {offlineNotice && (
           <View style={styles.offlineBanner}>
@@ -452,84 +479,147 @@ export default function PersonDetailScreen({ route, navigation }) {
             personName: person.full_name 
           })}
         >
-          <Ionicons name="add-circle" size={24} color={colors.primary} />
+          <Ionicons name="mic" size={22} color="white" />
           <Text style={styles.actionButtonText}>Record New Prayer Request</Text>
         </TouchableOpacity>
 
         {sessions && sessions.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Prayer Requests ({sessions.length})</Text>
-            {sessions.map((session, index) => (
-              <TouchableOpacity
-                key={session.id}
-                activeOpacity={0.8}
-                onPress={() =>
-                  navigation.navigate('PrayerRequestDetail', {
-                    session,
-                    personId: person.id,
-                    personName: person.full_name,
-                  })
-                }
-              >
-                <GlassSurface style={styles.sessionCard}>
-                  <View style={styles.sessionHeader}>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        { backgroundColor: session.answered ? '#34C759' : colors.primarySoft },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusPillText,
-                          { color: session.answered ? 'white' : colors.primary },
-                        ]}
-                      >
-                        {session.answered ? 'Answered' : 'Active'}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Prayer Requests</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{sessions.length}</Text>
+              </View>
+            </View>
+            {sessions.map((session) => {
+              const isAnswered = !!session.answered;
+              const accentColor = isAnswered ? ANSWERED_COLOR : colors.primary;
+              const preview = toPlainPreview(getRequestNote(session));
+              const verses = session.verses || [];
+              const openDetail = () =>
+                navigation.navigate('PrayerRequestDetail', {
+                  session,
+                  personId: person.id,
+                  personName: person.full_name,
+                });
+
+              return (
+                <GlassSurface key={session.id} style={styles.noteCard}>
+                  <View style={[styles.noteAccent, { backgroundColor: accentColor }]} />
+                  <View style={styles.noteInner}>
+                    <View style={styles.noteHeader}>
+                      <View style={styles.statusLabel}>
+                        <Ionicons
+                          name={isAnswered ? 'checkmark-circle' : 'ellipse'}
+                          size={isAnswered ? 15 : 9}
+                          color={accentColor}
+                        />
+                        <Text style={[styles.statusLabelText, { color: accentColor }]}>
+                          {isAnswered ? 'ANSWERED' : 'ACTIVE'}
+                        </Text>
+                      </View>
+                      <Text style={styles.noteDate} numberOfLines={1}>
+                        {formatNoteDate(session.created_at)}
                       </Text>
-                    </View>
-                    <Ionicons name="time" size={16} color="#666" style={{ marginLeft: 8 }} />
-                    <Text style={styles.sessionDate}>
-                      {parseUtcTimestamp(session.created_at).toLocaleString()}
-                    </Text>
-                    <View style={styles.sessionActions}>
                       <TouchableOpacity
-                        style={styles.transferButton}
+                        style={styles.noteIconButton}
                         onPress={() => openEditSessionModal(session)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit prayer request"
                       >
-                        <Ionicons name="pencil" size={16} color={colors.primary} />
-                        <Text style={styles.transferButtonText}>Edit</Text>
+                        <Ionicons name="create-outline" size={19} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity activeOpacity={0.6} onPress={openDetail}>
+                      {preview ? (
+                        <Text style={styles.noteBody} numberOfLines={6}>
+                          {preview}
+                        </Text>
+                      ) : (
+                        <Text style={styles.noteEmpty}>No details recorded.</Text>
+                      )}
+                      <View style={styles.readMoreRow}>
+                        <Text style={styles.readMoreText}>View full request</Text>
+                        <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+                      </View>
+                    </TouchableOpacity>
+
+                    {isAnswered && session.answered_note ? (
+                      <View style={styles.answeredNoteBox}>
+                        <Text style={styles.answeredNoteLabel}>How it was answered</Text>
+                        <Text style={styles.answeredNoteText} numberOfLines={3}>
+                          {session.answered_note}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {verses.length > 0 && (
+                      <View style={styles.verseChips}>
+                        {verses.map((verse) => (
+                          <View key={verse.id} style={styles.verseChip}>
+                            <Ionicons name="book" size={12} color={colors.primary} />
+                            <Text style={styles.verseChipText}>{verse.reference}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    <View style={styles.noteDivider} />
+
+                    <View style={styles.noteActions}>
+                      <TouchableOpacity
+                        style={[
+                          styles.noteActionButton,
+                          isAnswered ? styles.unanswerActionButton : styles.answerActionButton,
+                        ]}
+                        onPress={() =>
+                          isAnswered ? confirmMarkUnanswered(session) : openAnsweredModal(session)
+                        }
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={isAnswered ? 'Mark as unanswered' : 'Mark as answered'}
+                      >
+                        <Ionicons
+                          name={isAnswered ? 'arrow-undo' : 'checkmark-circle'}
+                          size={18}
+                          color={isAnswered ? colors.textSecondary : 'white'}
+                        />
+                        <Text
+                          style={[
+                            styles.noteActionText,
+                            { color: isAnswered ? colors.textSecondary : 'white' },
+                          ]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
+                        >
+                          {isAnswered ? 'Undo Answered' : 'Mark Answered'}
+                        </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.transferButton, { marginLeft: 6 }]}
-                        onPress={() => openTransferModal(session)}
+                        style={[styles.noteActionButton, styles.verseActionButton]}
+                        onPress={() => openAddVerse(session)}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add a Bible verse"
                       >
-                        <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
-                        <Text style={styles.transferButtonText}>Move</Text>
+                        <Ionicons name="book" size={17} color={colors.primary} />
+                        <Text
+                          style={[styles.noteActionText, { color: colors.primary }]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
+                        >
+                          Add Verse
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
-                  {(() => {
-                    const combined = [session.notes, session.transcript]
-                      .filter((t) => typeof t === 'string' && t.trim().length > 0)
-                      .join('\n\n');
-                    if (!combined) return null;
-                    return (
-                      <Markdown style={markdownStyles}>
-                        {normalizeMarkdownForDisplay(combined)}
-                      </Markdown>
-                    );
-                  })()}
-                  {session.verses && session.verses.length > 0 && (
-                    <Text style={styles.verseHint}>
-                      <Ionicons name="book-outline" size={13} color={colors.textSecondary} />
-                      {'  '}
-                      {session.verses.length} verse{session.verses.length === 1 ? '' : 's'} attached
-                    </Text>
-                  )}
                 </GlassSurface>
-              </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         )}
 
@@ -657,103 +747,58 @@ export default function PersonDetailScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Transfer Session Modal */}
+      {/* Mark Answered Modal */}
       <Modal
-        visible={showTransferModal}
+        visible={!!answeringSession}
         transparent={true}
         animationType="slide"
         onRequestClose={() => {
-          if (!isTransferring) {
-            setShowTransferModal(false);
-            setTransferSession(null);
-            setTransferSearchQuery('');
-          }
+          if (!isSavingAnswered) setAnsweringSession(null);
         }}
       >
-        <View style={styles.modalOverlay}>
-          <GlassSurface style={styles.modalContent} intensity={52} strong>
-            <Text style={styles.modalTitle}>Move Prayer Request to Another Person</Text>
-            <Text style={styles.modalMessage}>
-              Choose who this prayer request actually belongs to.
-            </Text>
-
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search people..."
-                value={transferSearchQuery}
-                onChangeText={setTransferSearchQuery}
-                placeholderTextColor="#999"
-                editable={!isTransferring}
-              />
-              {transferSearchQuery.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setTransferSearchQuery('')}
-                  disabled={isTransferring}
-                >
-                  <Ionicons
-                    name="close-circle"
-                    size={20}
-                    color={isTransferring ? '#ccc' : '#666'}
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <ScrollView style={{ maxHeight: 260 }}>
-              {transferPersons
-                .filter((p) => {
-                  if (!transferSearchQuery.trim()) return true;
-                  const q = transferSearchQuery.toLowerCase();
-                  return (
-                    p.full_name.toLowerCase().includes(q) ||
-                    p.first_name?.toLowerCase().includes(q)
-                  );
-                })
-                .map((p) => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={styles.similarPersonCard}
-                    onPress={() => handleTransferToPerson(p.id)}
-                    disabled={isTransferring}
-                  >
-                    <Ionicons name="person" size={24} color={colors.primary} style={styles.personIcon} />
-                    <View style={styles.personCardContent}>
-                      <Text style={styles.similarPersonName}>{p.full_name}</Text>
-                      <Text style={styles.similarPersonMatch}>Tap to move prayer request here</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-
-              {transferPersons.length === 0 && (
-                <View style={styles.noResultsContainer}>
-                  <Ionicons name="people-outline" size={48} color="#ccc" />
-                  <Text style={styles.noResultsText}>No other people available</Text>
-                  <Text style={styles.noResultsSubtext}>
-                    Create another person first, then move the prayer request.
-                  </Text>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <GlassSurface style={styles.modalContent} intensity={52} strong>
+                <View style={styles.answeredModalIcon}>
+                  <Ionicons name="checkmark-circle" size={44} color={ANSWERED_COLOR} />
                 </View>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => {
-                  if (!isTransferring) {
-                    setShowTransferModal(false);
-                    setTransferSession(null);
-                    setTransferSearchQuery('');
-                  }
-                }}
-                disabled={isTransferring}
-              >
-                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </GlassSurface>
-        </View>
+                <Text style={styles.modalTitle}>Mark as answered?</Text>
+                <Text style={styles.inputLabel}>How was it answered? (optional)</Text>
+                <TextInput
+                  style={[styles.input, styles.answeredInput]}
+                  value={answeredNoteInput}
+                  onChangeText={setAnsweredNoteInput}
+                  placeholder="e.g. She got the job!"
+                  placeholderTextColor={colors.placeholderText}
+                  multiline
+                  textAlignVertical="top"
+                  editable={!isSavingAnswered}
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonCancel]}
+                    onPress={() => setAnsweringSession(null)}
+                    disabled={isSavingAnswered}
+                  >
+                    <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, { backgroundColor: ANSWERED_COLOR }]}
+                    onPress={confirmMarkAnswered}
+                    disabled={isSavingAnswered}
+                  >
+                    {isSavingAnswered ? (
+                      <ActivityIndicator color="white" />
+                    ) : (
+                      <Text style={styles.modalButtonTextSave}>Mark answered</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </GlassSurface>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Edit Prayer Request Modal */}
@@ -775,7 +820,7 @@ export default function PersonDetailScreen({ route, navigation }) {
               <GlassSurface style={[styles.modalContent, { maxHeight: '85%' }]} intensity={52} strong>
                 {/* Header row with title and Done button to dismiss keyboard */}
                 <View style={styles.editModalHeader}>
-                  <Text style={styles.modalTitle}>Edit Session</Text>
+                  <Text style={styles.modalTitle}>Edit Prayer Request</Text>
                   <View style={styles.editHeaderActions}>
                     <TouchableOpacity
                       onPress={Keyboard.dismiss}
@@ -824,7 +869,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                     multiline
                     value={editTranscript}
                     onChangeText={setEditTranscript}
-                    placeholder="Prayer request notes and transcript…"
+                    placeholder="What are you praying for?"
                     textAlignVertical="top"
                     editable={!isSavingSession && !isDeletingSession}
                     scrollEnabled={false}
@@ -963,12 +1008,43 @@ function createStyles(colors) {
   name: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.textPrimary,
     marginBottom: 5,
   },
   date: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    marginTop: 18,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: colors.border,
   },
   actionButton: {
     flexDirection: 'row',
@@ -977,13 +1053,13 @@ function createStyles(colors) {
     backgroundColor: colors.primary,
     padding: 15,
     borderRadius: RADIUS.button,
-    marginBottom: 25,
+    marginBottom: 28,
   },
   actionButtonText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
-    marginLeft: 10,
+    marginLeft: 8,
   },
   section: {
     marginBottom: 25,
@@ -991,69 +1067,172 @@ function createStyles(colors) {
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.textPrimary,
     marginBottom: 15,
   },
-  sessionCard: {
-    padding: 15,
-    borderRadius: RADIUS.card,
-    marginBottom: 10,
-  },
-  sessionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    gap: 5,
-  },
-  sessionDate: {
-    fontSize: 12,
-    color: '#666',
-    marginLeft: 6,
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: RADIUS.chip,
-  },
-  statusPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  verseHint: {
-    marginTop: 8,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  sessionActions: {
-    marginLeft: 'auto',
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 14,
   },
-  transferButton: {
+  countBadge: {
+    minWidth: 26,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: RADIUS.chip,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+  },
+  countBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  // Each prayer request reads like a separate note: colored edge on the left,
+  // a small header line, the text, then its actions along the bottom.
+  noteCard: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  noteAccent: {
+    width: 5,
+  },
+  noteInner: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  noteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    marginBottom: 10,
+  },
+  statusLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  statusLabelText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  noteDate: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 10,
+  },
+  noteIconButton: {
+    padding: 4,
+    marginLeft: 6,
+  },
+  noteBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textPrimary,
+  },
+  noteEmpty: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: colors.textSecondary,
+  },
+  readMoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  readMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+    marginRight: 2,
+  },
+  answeredNoteBox: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(52, 199, 89, 0.12)',
+  },
+  answeredNoteLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ANSWERED_COLOR,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  answeredNoteText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textPrimary,
+  },
+  verseChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 12,
+  },
+  verseChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: RADIUS.chip,
     backgroundColor: colors.primarySoft,
   },
-  transferButtonText: {
-    marginLeft: 4,
+  verseChipText: {
     fontSize: 12,
+    fontWeight: '600',
     color: colors.primary,
-    fontWeight: '500',
   },
-  sessionNotes: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 10,
-    fontWeight: '500',
+  noteDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginTop: 14,
+    marginBottom: 12,
   },
-  sessionTranscript: {
+  noteActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  noteActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: RADIUS.button,
+  },
+  answerActionButton: {
+    backgroundColor: ANSWERED_COLOR,
+  },
+  unanswerActionButton: {
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  verseActionButton: {
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  noteActionText: {
     fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+    fontWeight: '700',
+  },
+  answeredModalIcon: {
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  answeredInput: {
+    minHeight: 80,
+    marginBottom: 16,
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -1133,6 +1312,10 @@ function createStyles(colors) {
     color: '#333',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   inputContainer: {
     marginBottom: 15,
@@ -1271,105 +1454,3 @@ function createStyles(colors) {
   },
 });
 }
-
-// Markdown styles so ## headers, **bold**, lists, etc. render nicely in session transcripts
-function createMarkdownStyles(colors) {
-  return StyleSheet.create({
-  body: {
-    fontSize: 16,
-    color: colors.textPrimary,
-    lineHeight: 24,
-  },
-  paragraph: {
-    marginTop: 0,
-    marginBottom: 8,
-    fontSize: 16,
-    color: colors.textPrimary,
-    lineHeight: 24,
-  },
-  heading1: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginTop: 12,
-    marginBottom: 6,
-    lineHeight: 30,
-  },
-  heading2: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginTop: 10,
-    marginBottom: 4,
-    lineHeight: 26,
-  },
-  heading3: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginTop: 8,
-    marginBottom: 2,
-    lineHeight: 24,
-  },
-  strong: {
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  em: {
-    fontStyle: 'italic',
-    color: colors.textPrimary,
-  },
-  link: {
-    color: colors.primary,
-    textDecorationLine: 'underline',
-  },
-  bullet_list: {
-    marginBottom: 6,
-  },
-  ordered_list: {
-    marginBottom: 6,
-  },
-  bullet_list_icon: {
-    marginLeft: 0,
-    marginRight: 8,
-  },
-  bullet_list_content: {
-    flex: 1,
-  },
-  ordered_list_icon: {
-    marginLeft: 0,
-    marginRight: 8,
-  },
-  ordered_list_content: {
-    flex: 1,
-  },
-  list_item: {
-    marginBottom: 2,
-    fontSize: 16,
-    color: colors.textPrimary,
-    lineHeight: 22,
-  },
-  code_inline: {
-    backgroundColor: colors.surfaceMuted,
-    fontFamily: undefined,
-    fontSize: 14,
-    color: colors.textPrimary,
-    paddingHorizontal: 4,
-    borderRadius: 4,
-  },
-  blockquote: {
-    backgroundColor: colors.surfaceMuted,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-    paddingLeft: 10,
-    marginVertical: 6,
-    marginLeft: 0,
-  },
-  hr: {
-    backgroundColor: colors.border,
-    height: 1,
-    marginVertical: 10,
-  },
-});
-}
-

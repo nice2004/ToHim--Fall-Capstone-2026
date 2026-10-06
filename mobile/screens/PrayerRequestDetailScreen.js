@@ -19,6 +19,7 @@ import { sessionAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
+import { getRequestNote, getOriginalWords } from '../utils/prayerText';
 
 const ANSWERED_COLOR = '#34C759';
 
@@ -50,9 +51,8 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
   const [isSavingAnswered, setIsSavingAnswered] = useState(false);
   const [isDeletingVerseId, setIsDeletingVerseId] = useState(null);
 
-  const combinedText = [session.notes, session.transcript]
-    .filter((t) => typeof t === 'string' && t.trim().length > 0)
-    .join('\n\n');
+  const noteText = getRequestNote(session);
+  const originalWords = getOriginalWords(session);
 
   const openAnsweredModal = () => {
     setAnsweredNoteInput('');
@@ -146,7 +146,10 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollFlex} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.statusRow}>
           <View
             style={[
@@ -165,11 +168,17 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
         </View>
 
         <GlassSurface style={styles.requestCard}>
-          {combinedText ? (
-            <Markdown style={markdownStyles}>{normalizeMarkdownForDisplay(combinedText)}</Markdown>
+          {noteText ? (
+            <Markdown style={markdownStyles}>{normalizeMarkdownForDisplay(noteText)}</Markdown>
           ) : (
             <Text style={styles.emptyText}>No details recorded.</Text>
           )}
+          {originalWords ? (
+            <View style={styles.originalWords}>
+              <Text style={styles.originalWordsLabel}>In my words</Text>
+              <Text style={styles.originalWordsText}>“{originalWords}”</Text>
+            </View>
+          ) : null}
         </GlassSurface>
 
         {isAnswered && session.answered_note ? (
@@ -301,6 +310,26 @@ function createStyles(colors) {
     dateText: { fontSize: 13, color: colors.textSecondary },
     requestCard: { padding: 18, borderRadius: RADIUS.card, marginBottom: 14 },
     emptyText: { fontSize: 14, color: colors.textSecondary, fontStyle: 'italic' },
+    originalWords: {
+      marginTop: 10,
+      paddingTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    originalWordsLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 4,
+    },
+    originalWordsText: {
+      fontSize: 14,
+      lineHeight: 21,
+      fontStyle: 'italic',
+      color: colors.textSecondary,
+    },
     answeredNoteCard: { borderLeftWidth: 4, borderLeftColor: ANSWERED_COLOR },
     answeredNoteLabel: {
       fontSize: 12,

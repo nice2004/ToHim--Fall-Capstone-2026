@@ -75,7 +75,7 @@ router.post('/:id/normalize-dates', async (req, res) => {
     if (personData.sessions && personData.sessions.length > 0) {
       for (const session of personData.sessions) {
         if (session.notes) {
-          const relativeDatePatterns = /\b(tomorrow|yesterday|today|next week|last week|in \d+ days?|next month|last month|next year|last year|this week|this month|this year)\b/gi;
+          const relativeDatePatterns = /\b(tomorrow|yesterday|today|tonight|next week|last week|in \d+ days?|next month|last month|next year|last year|this week|this month|this year)\b/gi;
           if (relativeDatePatterns.test(session.notes)) {
             const sessionDate = new Date(session.created_at);
             try {
@@ -124,16 +124,17 @@ router.get('/:id', async (req, res) => {
       for (const session of personData.sessions) {
         if (session.notes) {
           // Check if notes contain relative dates
-          const relativeDatePatterns = /\b(tomorrow|yesterday|today|next week|last week|in \d+ days?|next month|last month|next year|last year|this week|this month|this year)\b/gi;
+          const relativeDatePatterns = /\b(tomorrow|yesterday|today|tonight|next week|last week|in \d+ days?|next month|last month|next year|last year|this week|this month|this year)\b/gi;
           if (relativeDatePatterns.test(session.notes)) {
             // Normalize dates in notes using session creation date
             const sessionDate = new Date(session.created_at);
             try {
               const normalizedNotes = await aiService.normalizeDatesInText(session.notes, sessionDate);
-              if (normalizedNotes !== session.notes) {
-                // TODO: optional: persist normalization back to Postgres
-                // Update the session notes in the response
+              if (normalizedNotes && normalizedNotes !== session.notes) {
+                // Persist so this runs once per session instead of on every page load
+                // (re-running it each time was also how stray model chatter crept into notes).
                 session.notes = normalizedNotes;
+                await userRepo.updateSessionNotes(session.id, normalizedNotes);
                 console.log(`[Persons] Normalized dates in session ${session.id} notes`);
               }
             } catch (normalizeError) {

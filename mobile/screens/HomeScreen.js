@@ -10,8 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { SafeAreaView, useSafeAreaInsets, useSafeAreaFrame } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaFrame } from 'react-native-safe-area-context';
 import { authAPI, profileAPI } from '../services/api';
 import { useOnboarding } from '../onboarding/OnboardingContext';
 import GlassSurface from '../components/GlassSurface';
@@ -24,11 +23,9 @@ export default function HomeScreen({ navigation, onLogout }) {
   const [userName, setUserName] = useState(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const { height: windowHeight } = useWindowDimensions();
-  const tabBarHeight = useBottomTabBarHeight();
-  const insets = useSafeAreaInsets();
   const frame = useSafeAreaFrame();
-  /** Space below last item so Logout clears tab bar + home indicator */
-  const scrollBottomPadding = tabBarHeight + Math.max(insets.bottom, 12) + 48;
+  /** Breathing room below Logout (the tab scene already ends above the floating bar) */
+  const scrollBottomPadding = 32;
   /**
    * ScrollView only scrolls when its viewport is bounded (flex parent with minHeight:0)
    * AND content is taller than that viewport. Use safe-area frame + extra so Logout is reachable.

@@ -14,3 +14,6 @@ mobile/dist/
 __pycache__/
 *.pyc
 
+
+# Local backups written by server/scripts/personalize-notes.js (contain prayer data)
+server/scripts/personalize-notes-backup-*.json

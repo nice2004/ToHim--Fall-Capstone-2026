@@ -9,7 +9,8 @@
     "mobile": "cd mobile && npm start",
     "migrate:normalize-dates": "node server/scripts/normalize-all-dates.js",
     "migrate:populate-calendar": "node server/scripts/populate-calendar-events.js",
-    "fix:calendar-dates": "node server/scripts/fix-calendar-dates.js"
+    "fix:calendar-dates": "node server/scripts/fix-calendar-dates.js",
+    "migrate:personalize-notes": "node server/scripts/personalize-notes.js"
   },
   "keywords": [
     "prayer",

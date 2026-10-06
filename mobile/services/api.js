@@ -251,18 +251,6 @@ export const sessionAPI = {
     }
   },
 
-  transfer: async (sessionId, targetPersonId) => {
-    try {
-      const response = await api.post(`/sessions/${sessionId}/transfer`, {
-        targetPersonId,
-      });
-      return response.data;
-    } catch (error) {
-      console.error('[sessionAPI] Error transferring session:', error);
-      throw error;
-    }
-  },
-
   update: async (sessionId, { notes, transcript }) => {
     try {
       const response = await api.put(`/sessions/${sessionId}`, { notes, transcript });

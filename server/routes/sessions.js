@@ -141,7 +141,7 @@ async function processSessionInBackground({
     // Generate notes, then apply the SAME normalized dates used for calendar.
     let notes;
     try {
-      notes = await aiService.generateNotes(transcript, null, clientTimeZone);
+      notes = await aiService.generateNotes(transcript, null, clientTimeZone, person.full_name);
       notes = aiService.applyNormalizedDatesToText(notes, normalizedDates);
     } catch (notesError) {
       console.warn('[Sessions] Notes generation failed, using transcript fallback:', notesError.message);

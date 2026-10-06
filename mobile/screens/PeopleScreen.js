@@ -25,6 +25,41 @@ import GlassSurface from '../components/GlassSurface';
 
 const GROUP_VIEW_KEY = 'groupViewEnabled';
 
+// Avatar accents picked per person so the list isn't a column of identical blue circles.
+const AVATAR_COLORS = ['#2F6FB8', '#7C5CBF', '#2E9C8A', '#D9822B', '#C2557A', '#4A8F3C'];
+
+function avatarColorFor(person) {
+  const key = String(person.full_name || person.id || '');
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function initialsFor(person) {
+  const first = (person.first_name || person.full_name || '?').trim().charAt(0);
+  const last = (person.last_name || '').trim().charAt(0);
+  return `${first}${last}`.toUpperCase();
+}
+
+// Same UTC handling as PersonDetailScreen: SQLite timestamps have no timezone marker.
+function parseUtcTimestamp(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
+  return new Date(s.replace(' ', 'T') + 'Z');
+}
+
+function formatUpdated(str) {
+  const d = parseUtcTimestamp(str);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+  if (days <= 0) return 'Updated today';
+  if (days === 1) return 'Updated yesterday';
+  if (days < 7) return `Updated ${days} days ago`;
+  return `Updated ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
 function personMatchesSearch(person, rawQuery) {
   const q = String(rawQuery || '').trim().toLowerCase();
   if (!q) return true;
@@ -318,25 +353,36 @@ export default function PeopleScreen({ navigation }) {
       return null;
     }
     
+    const accent = avatarColorFor(item);
+    const updatedLabel = formatUpdated(item.updated_at);
+
     return (
       <TouchableOpacity
         style={styles.personCardTouchable}
         onPress={() => {
           navigation.navigate('PersonDetail', { personId: item.id });
         }}
-        activeOpacity={0.9}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${item.full_name}`}
       >
         <GlassSurface style={styles.personCard}>
-          <View style={styles.personAvatar}>
-            <Text style={styles.avatarText}>
-              {item.first_name.charAt(0).toUpperCase()}
-            </Text>
+          <View style={[styles.personAvatar, { backgroundColor: `${accent}1F` }]}>
+            <Text style={[styles.avatarText, { color: accent }]}>{initialsFor(item)}</Text>
           </View>
           <View style={styles.personInfo}>
-            <Text style={styles.personName}>{item.full_name}</Text>
-            <Text style={styles.personDate}>
-              Updated: {new Date(item.updated_at).toLocaleDateString()}
+            <Text style={styles.personName} numberOfLines={1}>
+              {item.full_name}
             </Text>
+            {updatedLabel ? (
+              <View style={styles.personMetaRow}>
+                <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+                <Text style={styles.personDate}>{updatedLabel}</Text>
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.chevronWrap}>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </View>
         </GlassSurface>
       </TouchableOpacity>
@@ -356,18 +402,21 @@ export default function PeopleScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>People</Text>
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.headerTitle}>People</Text>
+        </View>
         <View style={styles.headerButtons}>
           {groupViewEnabled ? (
             <>
               <TouchableOpacity
-                style={styles.addButton}
+                style={styles.headerIconButton}
                 onPress={() => {
                   setShowGroupInfoModal(true);
                 }}
                 activeOpacity={0.85}
+                accessibilityLabel="About groups"
               >
-                <Ionicons name="help-circle-outline" size={28} color={colors.primary} />
+                <Ionicons name="help" size={22} color={colors.primary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.addButton}
@@ -375,8 +424,9 @@ export default function PeopleScreen({ navigation }) {
                   setShowCreateGroupModal(true);
                 }}
                 activeOpacity={0.85}
+                accessibilityLabel="Create group"
               >
-                <Ionicons name="add-circle" size={28} color={colors.primary} />
+                <Ionicons name="add" size={26} color="white" />
               </TouchableOpacity>
             </>
           ) : (
@@ -386,8 +436,9 @@ export default function PeopleScreen({ navigation }) {
                 navigation.navigate('NewSession');
               }}
               activeOpacity={0.85}
+              accessibilityLabel="Add a prayer request for a new person"
             >
-              <Ionicons name="add-circle" size={28} color={colors.primary} />
+              <Ionicons name="add" size={26} color="white" />
             </TouchableOpacity>
           )}
         </View>
@@ -474,6 +525,7 @@ export default function PeopleScreen({ navigation }) {
             data={filteredGroups}
             renderItem={renderGroupItem}
             keyExtractor={(item) => item.id.toString()}
+
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             refreshControl={
@@ -519,7 +571,15 @@ export default function PeopleScreen({ navigation }) {
             data={filteredPersons}
             renderItem={renderPersonItem}
             keyExtractor={(item) => item.id.toString()}
+
             contentContainerStyle={styles.listContent}
+            ListHeaderComponent={
+              <Text style={styles.listSectionLabel}>
+                {hasActiveSearch
+                  ? `${filteredPersons.length} ${filteredPersons.length === 1 ? 'match' : 'matches'}`
+                  : 'Recently updated'}
+              </Text>
+            }
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -668,7 +728,6 @@ export default function PeopleScreen({ navigation }) {
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-            
             <ScrollView style={styles.infoModalScrollView}>
               <View style={styles.infoSection}>
                 <Ionicons name="folder" size={32} color={colors.primary} style={styles.infoIcon} />
@@ -730,18 +789,40 @@ function createStyles(colors) {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  headerTextWrap: {
+    flex: 1,
+    marginRight: 12,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '800',
     color: colors.textPrimary,
+    letterSpacing: -0.5,
   },
   addButton: {
-    padding: 5,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  headerIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -749,43 +830,67 @@ function createStyles(colors) {
     alignItems: 'center',
   },
   listContent: {
-    padding: 15,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+  listSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginLeft: 4,
+    marginBottom: 10,
   },
   personCardTouchable: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   personCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
-    borderRadius: RADIUS.card,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
   },
   personAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.primary,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 14,
   },
   avatarText: {
-    color: 'white',
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 19,
+    fontWeight: '700',
   },
   personInfo: {
     flex: 1,
   },
   personName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: colors.textPrimary,
     marginBottom: 4,
   },
+  personMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   personDate: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
+  },
+  chevronWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   emptyContainer: {
     flex: 1,
@@ -807,6 +912,7 @@ function createStyles(colors) {
   },
   headerButtons: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   offlineBanner: {
@@ -832,7 +938,7 @@ function createStyles(colors) {
   searchWrap: {
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 4,
+    paddingBottom: 12,
   },
   searchSurface: {
     flexDirection: 'row',
@@ -1026,6 +1132,11 @@ function createStyles(colors) {
     backgroundColor: colors.surfaceMuted,
     borderRadius: 10,
     marginBottom: 10,
+  },
+  groupPersonInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   infoModalScrollView: {
     maxHeight: 400,

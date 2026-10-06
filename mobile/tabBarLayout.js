@@ -14,6 +14,14 @@ export const FLOATING_TAB_BAR = {
 };
 
 /**
+ * Bottom padding applied to every tab scene (App.js `sceneContainerStyle`) so
+ * screen content always ends just above the floating tab bar and can never
+ * scroll underneath it. Because the scene stops above the home indicator,
+ * screens' SafeAreaViews no longer add a bottom inset of their own.
+ */
+export const TAB_BAR_SCENE_INSET = FLOATING_TAB_BAR.bottom + FLOATING_TAB_BAR.height + 10;
+
+/**
  * Window-space rectangle for the floating tab bar (approximate fallback).
  * `tabBarStyle.bottom` is measured from the navigator’s bottom (same as window
  * bottom here); do **not** subtract safe-area inset again or the cutout shifts

@@ -19,6 +19,31 @@ const OPENAI_CHAT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const TABBE_DATA_ONLY_SYSTEM =
   'You are ToHim. You MUST answer using ONLY the user-provided context below (sessions, notes, transcripts, stored metadata, and vector chunks). Do NOT use the web, general knowledge, or assumptions about real people, places, or events. If something is not stated in the context, say you do not have that in ToHim yet—do not guess or fill in. You may use minimal logic (e.g. comparing dates that already appear in the context to today\'s date) only when the user asks about timing and the context includes those dates.';
 
+/**
+ * Shared voice rule: ToHim is the user's own prayer journal, so everything written about a
+ * person reads as if the user wrote it ("Katie is my roommate"), never as a third-party report
+ * ("Katie is the roommate of the person writing the notes").
+ */
+const FIRST_PERSON_VOICE_RULES = `Voice and perspective (ToHim is the user's own private prayer journal):
+- Write as the user, in the first person: use "I", "me", "my", "we" for the user who recorded the note.
+- Never refer to the user as "the user", "the speaker", "the narrator", "the author", "the person writing the notes", "the person recording", or "the person".
+- Refer to the person being prayed for by name (or he/she/they as the source does) — never as "the person" or "the individual".
+- Keep relationships from the user's point of view: "Katie is my roommate", "my mom", "a friend from my church".
+- If the source uses "I"/"my" for the user, keep that ownership; do not turn "my graduation" into "her graduation".`;
+
+/** Drop chatty wrappers models sometimes add ("Here is the normalized text…:", surrounding quotes). */
+function stripModelPreamble(text) {
+  if (!text || typeof text !== 'string') return text;
+  let out = text.trim();
+  out = out.replace(
+    /^(?:sure[,!.]?\s*|certainly[,!.]?\s*|okay[,!.]?\s*)?(?:here(?:'s| is| are)|below is|this is)\b[^\n]*?:\s*\n+/i,
+    ''
+  );
+  // Only unwrap when the quotes enclose the whole text (no other quotes inside).
+  if (/^["“][^"“”]*["”]$/.test(out)) out = out.slice(1, -1).trim();
+  return out;
+}
+
 // Helper function to create a timeout promise
 function createTimeoutPromise(ms, errorMessage) {
   return new Promise((_, reject) => {
@@ -424,6 +449,8 @@ Return a JSON object with this structure:
 
 All facts, dates, and the summary must be grounded ONLY in the transcript—no outside knowledge or guesses.
 
+Write every fact and the summary in the voice of the user who recorded the transcript (first person): e.g. "Katie is my roommate", "I'm praying Katie gets enough rest this week". Never write "the user", "the speaker", "the person writing the notes", or "the person". Date contexts may stay short (e.g. "Katie's return from boot camp").
+
 REMEMBER: The personName field is CRITICAL. Be thorough in finding names. Only return null if you are absolutely certain no name appears in the transcript.`;
 
     try {
@@ -500,6 +527,7 @@ Rules:
 - Preserve original wording in segments (do not rewrite heavily).
 - If no clear name is present, use best available reference (e.g., "Dad", "Mom"), but do not invent unrelated names.
 - Facts, dates, segments, and summaries must come ONLY from the transcript—no outside knowledge.
+- Write facts and summaries in the first-person voice of the user who recorded the note ("Katie is my roommate", "I'm praying for her exam"). Never write "the user", "the speaker", "the person writing the notes", or "the person".
 
 Transcript:
 "${transcript}"
@@ -1160,36 +1188,48 @@ Return only the person's full name exactly as listed above, or "null".`;
     if (!text || typeof text !== 'string') return text;
 
     // Check if text contains relative dates (including weekend/day-of-week references)
-    const relativeDatePatterns = /\b(tomorrow|yesterday|today|next week|last week|in \d+ days?|in (the )?next few days|in a few days|in (the )?next couple of (days|weeks)|next month|last month|next year|last year|this week|this month|this year|next weekend|this weekend|over the weekend|next (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in a couple of (weeks|months)|end of the (week|month))\b/gi;
+    const relativeDatePatterns = /\b(tomorrow|yesterday|today|tonight|this (?:morning|afternoon|evening)|next week|last week|in \d+ days?|in (the )?next few days|in a few days|in (the )?next couple of (days|weeks)|next month|last month|next year|last year|this week|this month|this year|next weekend|this weekend|over the weekend|next (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in a couple of (weeks|months)|end of the (week|month))\b/gi;
     if (!relativeDatePatterns.test(text)) {
       return text; // No relative dates found
     }
 
+    // Week references are where the model guesses worst ("this week" → a random weekday),
+    // so compute the week starts here and hand them over.
+    const [refY, refM, refD] = getReferenceDateParts(referenceDate, referenceTimeZone).split('-').map(Number);
+    const refDay = new Date(Date.UTC(refY, refM - 1, refD));
+    const weekStart = (offsetWeeks) => {
+      const d = new Date(refDay);
+      d.setUTCDate(d.getUTCDate() - d.getUTCDay() + offsetWeeks * 7);
+      return d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' });
+    };
+
     const prompt = `You are a date normalization assistant. Convert all relative dates in the following text to absolute dates.
 
 Reference date (when this text was written): ${getReadableReferenceDate(referenceDate, referenceTimeZone)} (${getReferenceDateParts(referenceDate, referenceTimeZone)})
+"Today" means ${getReadableReferenceDate(referenceDate, referenceTimeZone)}; "tonight" means "the night of" that date.
+"This week" means the week of ${weekStart(0)}; "next week" means the week of ${weekStart(1)}; "last week" means the week of ${weekStart(-1)}. Write week references exactly that way (e.g. "the week of ${weekStart(0)}").
 
 Text to normalize:
 "${text}"
 
 Replace all relative dates (like "tomorrow", "next week", "in 3 days", "in the next few days", "in a few days") with absolute dates in a readable format (e.g., "February 4, 2025" or "Monday, February 4th").
-Keep all other text exactly as is. Only change the date references.
+Keep all other text exactly as is — same wording, same perspective, same formatting. Only change the date references.
 
-Return the normalized text with all relative dates converted to absolute dates.`;
+Output ONLY the rewritten text. No introduction (never "Here is the normalized text…"), no explanation, and no quotation marks around it.`;
 
     try {
       const response = await callOpenAIWithTimeout(
         openai.chat.completions.create({
           model: OPENAI_CHAT_MODEL,
           messages: [
-            { role: "system", content: "You are a helpful assistant that normalizes dates in text. Replace relative dates with absolute dates based on the reference date provided." },
+            { role: "system", content: "You normalize dates in text. Replace relative dates with absolute dates based on the reference date provided, and return only the rewritten text." },
             { role: "user", content: prompt }
           ],
           temperature: 0.2
         })
       );
 
-      return response.choices[0].message.content.trim();
+      return stripModelPreamble(response.choices[0].message.content) || text;
     } catch (error) {
       console.error('Error normalizing dates in text:', error.message);
       return text; // Fallback to original text
@@ -1265,6 +1305,8 @@ Example of BAD summary (too vague):
 "A date was referenced in the conversation about ${personName}."`;
     }
 
+    prompt += `\n\n${FIRST_PERSON_VOICE_RULES}`;
+
     try {
       const response = await callOpenAIWithTimeout(
         openai.chat.completions.create({
@@ -1288,34 +1330,42 @@ Example of BAD summary (too vague):
    * Generate structured notes from a transcript
    * @param {string} transcript - The conversation transcript
    * @param {Date} referenceDate - The date to use for normalizing relative dates in notes
+   * @param {string} personName - Who the prayer request is for, so the note can use their name
    */
-  async generateNotes(transcript, referenceDate = null, referenceTimeZone = null) {
-    const prompt = `Turn the following user transcript into clear, structured notes for remembering details about a person.
+  async generateNotes(transcript, referenceDate = null, referenceTimeZone = null, personName = null) {
+    const prompt = `I recorded this prayer request in my own words${personName ? ` about ${personName}` : ''}. Turn it into a short, clear note for my personal prayer journal.
 
-TRANSCRIPT (this is the ONLY source—do not add facts, names, dates, or events that do not appear in it):
+MY WORDS (the ONLY source—do not add facts, names, dates, or events that do not appear here):
 "${transcript}"
 
-Rules:
-- Paraphrase and organize only what is stated in the transcript.
-- Do NOT infer backstory, personality, or unstated motives.
-- Do NOT add information from general knowledge.
-- If something is unclear in the transcript, note that it was unclear rather than guessing.
+${FIRST_PERSON_VOICE_RULES}
+- Sound warm and natural, like a note I'd write to myself. Frame needs as what I'm praying for, e.g. "Praying that Katie's week goes better and that she gets enough rest." (style example only — use the real name, pronouns, and details from my words).
 
-Return a concise summary focusing on key facts, dates, and important information that actually appear in the transcript.`;
+Content rules:
+- Paraphrase and organize only what I actually said.
+- Keep every date or time I mentioned, worded the same way (e.g. "today", "tonight", "next Friday", "on Wednesday") — they are converted to calendar dates afterwards.
+- Leave out things I said to the app rather than about the prayer (e.g. "remind me…", "thanks", "yes", "okay"). If I asked to be reminded on a date, state it simply as "Reminder to pray on <date>."
+- Only use he/she/they if my words do; otherwise repeat the name.
+- Do NOT infer backstory, personality, or unstated motives, and do not add general knowledge.
+- If something is unclear, keep it simple rather than guessing.
+
+Format:
+- Start directly with the note. No title, no heading, no preface like "Here are the notes", no quotation marks.
+- One to three short sentences, or a few "- " bullet points when there are several separate needs or details.`;
 
     try {
       const response = await callOpenAIWithTimeout(
         openai.chat.completions.create({
           model: OPENAI_CHAT_MODEL,
           messages: [
-            { role: "system", content: "You create notes ONLY from the user's transcript. Never invent or assume facts not explicitly stated." },
+            { role: "system", content: "You write short prayer-journal notes in the user's own first-person voice, using ONLY what the user said. Never invent or assume facts not explicitly stated." },
             { role: "user", content: prompt }
           ],
-          temperature: 0.35
+          temperature: 0.2
         })
       );
 
-      let notes = response.choices[0].message.content;
+      let notes = stripModelPreamble(response.choices[0].message.content);
 
       // Normalize dates in notes if reference date is provided
       if (referenceDate) {
@@ -1327,6 +1377,51 @@ Return a concise summary focusing on key facts, dates, and important information
     } catch (error) {
       console.error('Error generating notes:', error.message);
       return transcript; // Fallback to original transcript
+    }
+  }
+
+  /**
+   * Suggest Bible references for a verse search that isn't a plain reference: a topic
+   * ("anxiety"), or wording the user half-remembers in any translation
+   * ("take no thought for tomorrow"). Only references come back from the model —
+   * the verse text itself is always fetched from api.bible, so it can't be invented.
+   * @returns {Promise<string[]>} e.g. ["Philippians 4:6-7", "1 Peter 5:7"]
+   */
+  async suggestVerseReferences(query, max = 6) {
+    const prompt = `A user of a prayer journal app is searching for a Bible verse. Their search:
+"${query}"
+
+The search may be:
+- a topic or feeling (e.g. "anxiety", "grief", "strength for a new job"), or
+- words or part of a sentence they remember from a verse, possibly from any translation and possibly slightly misremembered.
+
+If it looks like remembered wording, put the verse(s) that wording comes from FIRST.
+Then add other well-known verses that fit the topic. Return at most ${max} references, best match first.
+Use standard English book names and chapter:verse format (short ranges like "Philippians 4:6-7" are fine).
+Only return references you are confident exist. Do not include verse text.
+
+Return JSON: {"references": ["Book chapter:verse", ...]}`;
+
+    try {
+      const response = await callOpenAIWithTimeout(
+        openai.chat.completions.create({
+          model: OPENAI_CHAT_MODEL,
+          messages: [
+            { role: 'system', content: 'You map Bible search queries to accurate Bible references. Return valid JSON only.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        }),
+        15000
+      );
+      const parsed = JSON.parse(response.choices[0].message.content || '{}');
+      return (Array.isArray(parsed.references) ? parsed.references : [])
+        .filter((r) => typeof r === 'string' && r.trim())
+        .slice(0, max);
+    } catch (error) {
+      console.warn('[AIService] Verse suggestion failed:', error.message);
+      return [];
     }
   }
 
@@ -1389,15 +1484,20 @@ Return a concise summary focusing on key facts, dates, and important information
 
     const prompt = `Today is ${today}.
 
-Based only on the notes and facts provided above about ${personName}, write a short factual summary of 2–4 sentences.
+Based only on the notes and facts provided above about ${personName}, write a short summary of 2–4 sentences about ${personName}, written by me for my own prayer journal.
 
-Rules:
+${FIRST_PERSON_VOICE_RULES}
+- Older notes or stored facts may still say "the user", "the person writing the notes", or similar — that always means me, so rewrite it as "I"/"my" (e.g. "Katie is the roommate of the person writing the notes" → "Katie is my roommate").
+- Voice example only (these are NOT facts about ${personName}): "Sam is my coworker. He starts a new role next month, and I'm praying the transition goes smoothly."
+
+Content rules:
 - Include ONLY information that is explicitly stated in the notes or stored facts. Do not infer, assume, or add anything.
 - Do not use interpretive or filler phrases (e.g. "dedicated individual," "looking forward to," "excited about," "warm personality," "great person") unless the notes explicitly say those things.
-- State concrete facts: names, places, dates, events, plans, and direct quotes or claims from the notes. If the notes say they are starting a new job, say that; do not add that they are "excited" or "looking forward to it" unless the notes say so.
+- State concrete facts: names, places, dates, events, plans, and what I'm praying for. If the notes say they are starting a new job, say that; do not add that they are "excited" or "looking forward to it" unless the notes say so.
+- Each note is prefixed with the date it was recorded. Words like "today" or "tonight" inside a note mean that note's date, not today — refer to past events by their date (e.g. "on October 4, 2026").
 - Use plain prose, no bullet points or markdown. Write only the summary, nothing else.`;
 
-    const systemContent = `You are ToHim. You write character summaries using ONLY the session notes, transcripts, and stored metadata provided in the user message. Do not use the web, general knowledge, or assumptions about anyone. Only state facts that appear in that provided text. Do not invent traits, attitudes, or interpretations. Do not add filler like "dedicated," "looking forward to," or "excited about" unless the source text explicitly says so.`;
+    const systemContent = `You are ToHim, a private prayer journal. You write short summaries of people the user prays for, in the user's own first-person voice ("Katie is my roommate"), using ONLY the session notes, transcripts, and stored metadata provided in the user message. Do not use the web, general knowledge, or assumptions about anyone. Only state facts that appear in that provided text. Do not invent traits, attitudes, or interpretations. Do not add filler like "dedicated," "looking forward to," or "excited about" unless the source text explicitly says so.`;
 
     try {
       const response = await callOpenAIWithTimeout(
@@ -1411,7 +1511,7 @@ Rules:
           max_completion_tokens: 200,
         })
       );
-      return response.choices[0].message.content.trim();
+      return stripModelPreamble(response.choices[0].message.content);
     } catch (error) {
       console.error('[AIService] Error generating character summary:', error.message);
       return null;

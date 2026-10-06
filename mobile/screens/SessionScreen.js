@@ -862,9 +862,54 @@ export default function SessionScreen({ route, navigation }) {
     ? entityDisambiguationData.entities[entityDisambiguationData.index]
     : null;
 
+  // Opened from People ("NewSession") or Home ("Session"); label the back button accordingly.
+  const backLabel = personName || (route?.name === 'NewSession' ? 'People' : 'Home');
+
+  const handleBackPress = () => {
+    const leave = () => {
+      stopSpeech();
+      if (promptFallbackTimerRef.current) {
+        clearTimeout(promptFallbackTimerRef.current);
+        promptFallbackTimerRef.current = null;
+      }
+      if (voiceRecognition.isListening || voiceRecognition.recording) {
+        voiceRecognition.stopListening().catch(() => {});
+      }
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate(route?.name === 'NewSession' ? 'PeopleList' : 'HomeMain');
+      }
+    };
+
+    if (transcript.trim() && !isSubmitting) {
+      Alert.alert('Discard this prayer request?', 'What you’ve written so far won’t be saved.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: leave },
+      ]);
+    } else {
+      leave();
+    }
+  };
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <SafeAreaView style={styles.container}>
+        <View style={styles.topNavBar}>
+          <TouchableOpacity
+            style={styles.backNavButton}
+            onPress={handleBackPress}
+            disabled={isSubmitting}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Back to ${backLabel}`}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.primary} />
+            <Text style={styles.backNavLabel} numberOfLines={1}>
+              {backLabel}
+            </Text>
+          </TouchableOpacity>
+        </View>
         {/* Stop Speech Button - appears when speaking */}
         {isSpeaking && (
           <TouchableOpacity
@@ -1729,6 +1774,26 @@ function createStyles(colors, shadow) {
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  topNavBar: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  backNavButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    maxWidth: '70%',
+  },
+  backNavLabel: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginLeft: 2,
   },
   scrollContent: {
     padding: 20,

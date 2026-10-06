@@ -31,7 +31,7 @@ import { registerDevOnboardingPreview } from './onboarding/devOnboardingBridge';
 import GlassSurface from './components/GlassSurface';
 import CoachableTabBar from './components/CoachableTabBar';
 import { makeMeasuredTabBarButton } from './components/MeasuredTabBarButton';
-import { FLOATING_TAB_BAR } from './tabBarLayout';
+import { FLOATING_TAB_BAR, TAB_BAR_SCENE_INSET } from './tabBarLayout';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
@@ -253,7 +253,8 @@ function AppInner() {
           ) : (
             <Tab.Navigator
               tabBar={(props) => <CoachableTabBar {...props} />}
-              sceneContainerStyle={{ flex: 1 }}
+              // Content stops above the floating tab bar on every tab, so nothing scrolls under it.
+              sceneContainerStyle={{ flex: 1, paddingBottom: TAB_BAR_SCENE_INSET }}
               screenOptions={({ route }) => ({
                 tabBarIcon: ({ focused, color, size }) => {
                   let iconName;
