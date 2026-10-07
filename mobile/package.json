@@ -10,7 +10,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:ios": "eas build --platform ios",
-    "submit:ios": "eas submit --platform ios"
+    "submit:ios": "eas submit --platform ios",
+    "publish:expo-go": "node scripts/publish-expo-go.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

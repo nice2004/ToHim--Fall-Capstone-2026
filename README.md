@@ -126,17 +126,65 @@ code (verified: no matching schema, fields, or UI):
    cd mobile
    npm install
    ```
-2. Point the app at your backend by setting the API URL in
-   `mobile/services/api.js` (or `expo.extra.apiBaseUrl` in `mobile/app.json`):
-   - iOS Simulator: `http://localhost:3000/api` (default)
+2. By default the app talks to the deployed backend on Render
+   (`expo.extra.apiBaseUrl` in `mobile/app.json`). To use a backend running on
+   your machine instead, set `EXPO_PUBLIC_API_BASE_URL` when starting Expo — no
+   code edits needed:
+   - Physical device on the same Wi-Fi: `http://YOUR_COMPUTER_IP:3000/api`
+   - Physical device anywhere: an ngrok URL from `./START_NGROK.sh` + `/api`
    - Android Emulator: `http://10.0.2.2:3000/api`
-   - Physical device: `http://YOUR_COMPUTER_IP:3000/api`
+   - iOS Simulator: `http://localhost:3000/api`
 3. Start the Expo dev server:
    ```bash
    npm start
+   # or against a local backend:
+   EXPO_PUBLIC_API_BASE_URL=http://192.168.1.100:3000/api npm start
    ```
 4. Scan the QR code with Expo Go, or press `i` (iOS simulator), `a` (Android
    emulator), or `w` (web).
+
+### Share ToHim with testers (always-on QR code)
+
+Testers don't need your laptop or a running dev server. The app is published
+as an [EAS Update](https://docs.expo.dev/eas-update/introduction/) on the
+`expo-go` channel, and it talks to the deployed Render backend.
+
+**For testers:**
+
+1. Install **Expo Go** from the App Store or Google Play.
+2. Scan the QR code with the iPhone Camera app (Android: use the scanner in
+   Expo Go), or open it from this link:
+   [ToHim QR code](https://qr.expo.dev/eas-update?slug=exp&projectId=090abdbe-eedc-4399-9e58-7c98894eb329&runtimeVersion=exposdk%3A57.0.0&channel=expo-go).
+3. ToHim opens in Expo Go. Sign up with a real email address (you'll get a
+   verification code) or sign in.
+
+**To publish a new version** (the QR code stays the same):
+
+```bash
+cd mobile
+eas login            # once, with an account in the thim-westmont-cs195 org
+npm run publish:expo-go -- "What changed"
+```
+
+Testers get the new version the next time they open ToHim in Expo Go.
+Fully close and reopen it to load an update right away.
+
+Before you publish, make sure the Render backend is running the matching
+server code (redeploy it after backend changes). An update only changes the
+app; the backend has to be deployed separately.
+
+Notes:
+- `npm run publish:expo-go` uses the Expo Go runtime version
+  (`exposdk:<SDK>`, see `mobile/app.config.js`) and its own channel.
+  TestFlight/EAS builds keep the `appVersion` runtime, so they never receive
+  these updates.
+- Testers need an Expo Go version that supports this project's SDK (57). The
+  store version of Expo Go supports one SDK at a time. When the store moves
+  to a newer SDK, the project has to be upgraded before the QR code works
+  again.
+- Anyone with the QR code can create an account on the real backend. Their
+  data goes into the production database, and every prayer request uses
+  OpenAI credits.
 
 ### Tests
 

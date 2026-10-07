@@ -4,40 +4,19 @@ import Constants from 'expo-constants';
 // Note: React Native has built-in FormData, no need to import
 
 // API Configuration
-// Change this to your backend server URL
-// For local development:
-// - iOS simulator: http://localhost:3000/api
-// - Android emulator: http://10.0.2.2:3000/api
-// - Physical device: http://YOUR_IP_ADDRESS:3000/api
-// 
-// IMPORTANT: If using Expo Go on a physical device, you MUST change localhost to your computer's IP!
-// Find your IP: ifconfig | grep "inet " | grep -v 127.0.0.1 (Mac/Linux)
-//              ipconfig (Windows)
-// Example: 'http://192.168.1.100:3000/api'
-
-// IMPORTANT: Configure this based on how you're testing:
-// - iOS Simulator: http://localhost:3000/api
-// - Android Emulator: http://10.0.2.2:3000/api  
-// - Physical Device: http://10.90.128.21:3000/api
-//   Find your IP: ifconfig | grep "inet " | grep -v 127.0.0.1 (Mac/Linux)
-//                 ipconfig (Windows)
-// - ngrok tunnel: https://unvamped-anita-preintellectually.ngrok-free.dev
-
-// TODO: Update dev URL when your ngrok tunnel changes (ngrok http 3000).
-// Production JSON API is on Render. mytabbe.com is only used for outbound email (Resend), not the REST API.
+// By default every build — TestFlight, the always-on Expo Go QR code, and `npm start` —
+// talks to the deployed backend on Render (`expo.extra.apiBaseUrl` in app.json).
+// mytabbe.com is only used for outbound email (Resend), not the REST API.
+//
+// To point a local dev session at a different backend (no code edits needed), set
+// EXPO_PUBLIC_API_BASE_URL when starting Expo, e.g.:
+//   EXPO_PUBLIC_API_BASE_URL=http://192.168.1.100:3000/api npm start   (same Wi-Fi)
+//   EXPO_PUBLIC_API_BASE_URL=https://<your-tunnel>/api npm start        (ngrok, see START_NGROK.sh)
+// Android emulator: http://10.0.2.2:3000/api · iOS simulator: http://localhost:3000/api
 const PRODUCTION_API_URL =
   Constants.expoConfig?.extra?.apiBaseUrl || 'https://tabbi.onrender.com/api';
 
-// TODO (Nice): David's old ngrok URL was hardcoded here and is almost
-// certainly dead now. Replace this with EITHER:
-//   - your local server's LAN IP, e.g. 'http://192.168.1.100:3000/api'
-//     (find it with `ipconfig` on Windows), or
-//   - a fresh ngrok/tunnel URL if testing on a physical device off your LAN
-const DEV_API_URL = 'https://designed-bonehead-unfiled.ngrok-free.dev/api';
-
-const API_BASE_URL = __DEV__
-  ? DEV_API_URL
-  : PRODUCTION_API_URL;
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || PRODUCTION_API_URL;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
