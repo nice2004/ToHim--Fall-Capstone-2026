@@ -138,6 +138,21 @@ code (verified: no matching schema, fields, or UI):
 4. Scan the QR code with Expo Go, or press `i` (iOS simulator), `a` (Android
    emulator), or `w` (web).
 
+### Tests
+
+Backend tests use Node's built-in test runner (Node 21+), so there's nothing
+extra to install:
+
+```bash
+npm test
+```
+
+They cover the prayer-request pipeline: extracting people from a description
+(`server/tests/aiService.extraction.test.js`) and creating/matching people and
+storing notes through `POST /api/sessions` (`server/tests/sessions.pipeline.test.js`).
+OpenAI, Postgres, Pinecone, and auth are replaced with in-memory fakes
+(`server/tests/helpers/mocks.js`), so tests need no `.env`, network, or API key.
+
 ## Project structure
 
 ```

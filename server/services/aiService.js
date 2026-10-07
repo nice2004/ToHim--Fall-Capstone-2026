@@ -44,20 +44,17 @@ function stripModelPreamble(text) {
   return out;
 }
 
-// Helper function to create a timeout promise
-function createTimeoutPromise(ms, errorMessage) {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(errorMessage)), ms);
-  });
-}
-
 // Helper function to wrap OpenAI calls with timeout and better error handling
 async function callOpenAIWithTimeout(apiCall, timeoutMs = 60000) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`OpenAI API call timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
   try {
-    const response = await Promise.race([
-      apiCall,
-      createTimeoutPromise(timeoutMs, `OpenAI API call timed out after ${timeoutMs}ms`)
-    ]);
+    const response = await Promise.race([apiCall, timeout]);
     return response;
   } catch (error) {
     // Provide more helpful error messages
@@ -71,6 +68,9 @@ async function callOpenAIWithTimeout(apiCall, timeoutMs = 60000) {
       throw new Error('Cannot connect to OpenAI API. Please check your internet connection.');
     }
     throw error;
+  } finally {
+    // Don't leave a pending 60s timer behind for every call (it also keeps test processes alive).
+    clearTimeout(timer);
   }
 }
 
