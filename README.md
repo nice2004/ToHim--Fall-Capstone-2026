@@ -155,8 +155,8 @@ as an [EAS Update](https://docs.expo.dev/eas-update/introduction/) on the
 2. Scan the QR code with the iPhone Camera app (Android: use the scanner in
    Expo Go), or open it from this link:
    [ToHim QR code](https://qr.expo.dev/eas-update?slug=exp&projectId=090abdbe-eedc-4399-9e58-7c98894eb329&runtimeVersion=exposdk%3A57.0.0&channel=expo-go).
-3. ToHim opens in Expo Go. Sign up with a real email address (you'll get a
-   verification code) or sign in.
+3. ToHim opens in Expo Go. Sign up (you're signed in right away) or sign in.
+   Each account only sees its own prayer requests.
 
 **To publish a new version** (the QR code stays the same):
 
@@ -172,6 +172,20 @@ Fully close and reopen it to load an update right away.
 Before you publish, make sure the Render backend is running the matching
 server code (redeploy it after backend changes). An update only changes the
 app; the backend has to be deployed separately.
+
+**The backend on Render** (`https://tohim-api.onrender.com`) is a Node web
+service built from this repo: build command `npm install`, start command
+`npm start`. Its environment variables are the ones from `.env` above (except
+`PORT`, which Render sets), plus:
+- `JWT_SECRET` — a long random string (without it the server signs logins
+  with a public default).
+- `SKIP_EMAIL_VERIFICATION=true` — sign-up skips the emailed code, since the
+  class server has no email provider. Password reset also needs email, so it
+  doesn't work in this mode. To send real codes instead, remove this and set
+  `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (from a domain verified in Resend).
+
+On Render's free plan the service sleeps after 15 minutes without traffic, so
+the first request after that can take up to a minute.
 
 Notes:
 - `npm run publish:expo-go` uses the Expo Go runtime version

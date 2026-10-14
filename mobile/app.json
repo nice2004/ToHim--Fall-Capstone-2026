@@ -34,13 +34,14 @@
     },
     "web": {},
     "extra": {
-      "apiBaseUrl": "https://tabbi.onrender.com/api",
+      "apiBaseUrl": "https://tohim-api.onrender.com/api",
       "eas": {
         "projectId": "090abdbe-eedc-4399-9e58-7c98894eb329"
       }
     },
     "plugins": [
       "expo-sqlite",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {
