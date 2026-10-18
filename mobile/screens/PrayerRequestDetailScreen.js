@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,8 @@ import { sessionAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
+import ReminderEditor from '../components/ReminderEditor';
+import { refreshReminders, getCachedReminders, describeSchedule, nextOccurrence } from '../services/reminders';
 import { getRequestNote, getOriginalWords } from '../utils/prayerText';
 
 const ANSWERED_COLOR = '#34C759';
@@ -50,6 +52,22 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
   const [answeredNoteInput, setAnsweredNoteInput] = useState('');
   const [isSavingAnswered, setIsSavingAnswered] = useState(false);
   const [isDeletingVerseId, setIsDeletingVerseId] = useState(null);
+  const [requestReminders, setRequestReminders] = useState([]);
+  // { reminder } to edit, {} to create; null when closed
+  const [reminderEditor, setReminderEditor] = useState(null);
+
+  const loadReminders = useCallback(async () => {
+    const forThisRequest = (list) =>
+      (list || []).filter((r) => String(r.session_id) === String(session.id));
+    // Show the cached list right away, then the fresh one.
+    setRequestReminders(forThisRequest(await getCachedReminders()));
+    const { reminders } = await refreshReminders();
+    setRequestReminders(forThisRequest(reminders));
+  }, [session.id]);
+
+  useEffect(() => {
+    loadReminders();
+  }, [loadReminders]);
 
   const noteText = getRequestNote(session);
   const originalWords = getOriginalWords(session);
@@ -221,6 +239,48 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Reminders</Text>
+          {requestReminders.length === 0 && (
+            <Text style={styles.emptyText}>
+              No reminders yet. Set one to be reminded to pray for {personName}.
+            </Text>
+          )}
+          {requestReminders.map((reminder) => {
+            const isDone = !nextOccurrence(reminder);
+            return (
+              <TouchableOpacity
+                key={reminder.id}
+                onPress={() => setReminderEditor({ reminder })}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`${reminder.title}, ${describeSchedule(reminder)}. Edit reminder`}
+              >
+                <GlassSurface style={[styles.reminderCard, isDone && styles.reminderCardDone]}>
+                  <Ionicons
+                    name={isDone ? 'notifications-off-outline' : 'notifications'}
+                    size={18}
+                    color={colors.primary}
+                  />
+                  <View style={styles.reminderCardText}>
+                    <Text style={styles.reminderTitle} numberOfLines={1}>
+                      {reminder.title}
+                    </Text>
+                    <Text style={styles.reminderSchedule}>
+                      {isDone ? `Done · ${describeSchedule(reminder)}` : describeSchedule(reminder)}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+                </GlassSurface>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity style={styles.addVerseButton} onPress={() => setReminderEditor({})}>
+            <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+            <Text style={styles.addVerseButtonText}>Set reminder</Text>
+          </TouchableOpacity>
+        </View>
+
         {isAnswered ? (
           <TouchableOpacity style={styles.secondaryButton} onPress={confirmMarkUnanswered}>
             <Text style={styles.secondaryButtonText}>Mark unanswered</Text>
@@ -281,6 +341,19 @@ export default function PrayerRequestDetailScreen({ route, navigation }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      <ReminderEditor
+        visible={!!reminderEditor}
+        reminder={reminderEditor?.reminder || null}
+        defaults={{
+          personId: session.person_id,
+          sessionId: session.id,
+          personName,
+          title: `Pray for ${personName}`,
+        }}
+        onClose={() => setReminderEditor(null)}
+        onChanged={loadReminders}
+      />
     </SafeAreaView>
   );
 }
@@ -361,6 +434,18 @@ function createStyles(colors) {
       marginTop: 4,
     },
     addVerseButtonText: { marginLeft: 8, color: colors.primary, fontSize: 15, fontWeight: '600' },
+    reminderCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      padding: 14,
+      borderRadius: RADIUS.card,
+      marginBottom: 10,
+    },
+    reminderCardDone: { opacity: 0.6 },
+    reminderCardText: { flex: 1 },
+    reminderTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+    reminderSchedule: { marginTop: 2, fontSize: 13, fontWeight: '600', color: colors.primary },
     primaryButton: {
       flexDirection: 'row',
       alignItems: 'center',

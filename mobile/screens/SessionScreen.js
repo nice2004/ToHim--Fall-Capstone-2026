@@ -479,7 +479,7 @@ export default function SessionScreen({ route, navigation }) {
           setTranscript(transcription);
           setRealTimeTranscript(transcription);
           console.log('[SessionScreen] Transcription successful:', transcription.substring(0, 100) + '...');
-          speakWithTracking('I heard: ' + transcription.substring(0, 100) + (transcription.length > 100 ? '...' : ''));
+          speakWithTracking('I heard: ' + transcription);
         } else {
           console.error('[SessionScreen] Transcription returned empty result');
           Speech.speak('Transcription failed. Please type what you said, or try recording again.', { language: 'en' });

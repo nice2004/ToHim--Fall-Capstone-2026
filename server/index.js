@@ -44,6 +44,7 @@ const groupRoutes = require('./routes/groups');
 const calendarRoutes = require('./routes/calendar');
 const metricsRoutes = require('./routes/metrics');
 const bibleRoutes = require('./routes/bible');
+const reminderRoutes = require('./routes/reminders');
 
 // Root API endpoint
 app.get('/api', (req, res) => {
@@ -91,6 +92,7 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/bible', bibleRoutes);
+app.use('/api/reminders', reminderRoutes);
 
 // Log route registration
 console.log('Routes registered:');

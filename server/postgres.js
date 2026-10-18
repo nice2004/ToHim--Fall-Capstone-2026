@@ -132,6 +132,46 @@ async function ensureSessionExtensionsSchema() {
   return sessionExtensionsReadyPromise;
 }
 
+let remindersReadyPromise = null;
+
+// Prayer reminders: a time to pray for a request, a person, or a personal prayer time.
+// remind_date/remind_time are wall-clock values in the user's own timezone (not UTC) so
+// "Fridays at 8:00 AM" stays at 8:00 AM across DST changes and travel.
+// person_id/session_id have no FK (those tables were migrated without guaranteed PKs);
+// reads skip reminders whose person/request was deleted.
+async function ensureRemindersSchema() {
+  if (!remindersReadyPromise) {
+    remindersReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS reminders (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          person_id INTEGER,
+          session_id INTEGER,
+          title TEXT NOT NULL,
+          remind_date DATE NOT NULL,
+          remind_time TIME NOT NULL,
+          repeat TEXT NOT NULL DEFAULT 'once' CHECK (repeat IN ('once', 'daily', 'weekly')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id)
+      `);
+      // Added after the first release: whether this reminder should alert the phone.
+      await pool.query(`
+        ALTER TABLE reminders
+        ADD COLUMN IF NOT EXISTS notify BOOLEAN NOT NULL DEFAULT TRUE
+      `);
+    })().catch((err) => {
+      remindersReadyPromise = null;
+      throw err;
+    });
+  }
+  return remindersReadyPromise;
+}
+
 // User helper functions mirroring the SQLite dbHelpers API where needed
 
 // Some environments were migrated with `id INTEGER PRIMARY KEY` (no DEFAULT),
@@ -357,9 +397,11 @@ async function updateUsername(userId, username) {
  */
 async function deleteUserAndAllData(userId) {
   const uid = Number(userId);
+  await ensureRemindersSchema();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('DELETE FROM reminders WHERE user_id = $1', [uid]);
     await client.query('DELETE FROM calendar_events WHERE user_id = $1', [uid]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [uid]);
     await client.query(
@@ -1016,6 +1058,96 @@ async function deleteSessionVerse(userId, sessionId, verseId) {
   return result.rows.length > 0;
 }
 
+// ----- Prayer reminders -----
+
+const REMINDER_SELECT = `
+  SELECT r.id, r.user_id, r.person_id, r.session_id, r.title, r.repeat, r.notify,
+         to_char(r.remind_date, 'YYYY-MM-DD') AS remind_date,
+         to_char(r.remind_time, 'HH24:MI') AS remind_time,
+         r.created_at, r.updated_at,
+         p.full_name AS person_name
+  FROM reminders r
+  LEFT JOIN persons p ON r.person_id = p.id AND p.user_id = r.user_id
+  LEFT JOIN sessions s ON r.session_id = s.id AND s.user_id = r.user_id
+`;
+// Hide reminders whose person or prayer request has since been deleted.
+const REMINDER_LIVE = `(r.person_id IS NULL OR p.id IS NOT NULL) AND (r.session_id IS NULL OR s.id IS NOT NULL)`;
+
+async function getReminders(userId) {
+  await ensureRemindersSchema();
+  const result = await pool.query(
+    `${REMINDER_SELECT}
+     WHERE r.user_id = $1 AND ${REMINDER_LIVE}
+     ORDER BY r.remind_date ASC, r.remind_time ASC`,
+    [userId]
+  );
+  return result.rows;
+}
+
+async function getReminderById(userId, reminderId) {
+  await ensureRemindersSchema();
+  const result = await pool.query(
+    `${REMINDER_SELECT}
+     WHERE r.user_id = $1 AND r.id = $2 AND ${REMINDER_LIVE}
+     LIMIT 1`,
+    [userId, reminderId]
+  );
+  return result.rows[0] || null;
+}
+
+// A reminder tied to a prayer request always belongs to that request's person.
+async function resolveReminderTarget(userId, { personId, sessionId }) {
+  if (sessionId) {
+    const session = await getSessionById(userId, sessionId);
+    if (!session) throw new Error('Prayer request not found or access denied');
+    return { personId: session.person_id || null, sessionId: session.id };
+  }
+  if (personId) {
+    const person = await getPersonById(userId, personId);
+    if (!person) throw new Error('Person not found or access denied');
+    return { personId: person.id, sessionId: null };
+  }
+  return { personId: null, sessionId: null };
+}
+
+async function createReminder(userId, { title, remindDate, remindTime, repeat, notify, personId, sessionId }) {
+  await ensureRemindersSchema();
+  const target = await resolveReminderTarget(userId, { personId, sessionId });
+  const result = await pool.query(
+    `
+    INSERT INTO reminders (user_id, person_id, session_id, title, remind_date, remind_time, repeat, notify)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING id
+    `,
+    [userId, target.personId, target.sessionId, title, remindDate, remindTime, repeat, notify !== false]
+  );
+  return getReminderById(userId, result.rows[0].id);
+}
+
+async function updateReminder(userId, reminderId, { title, remindDate, remindTime, repeat, notify }) {
+  await ensureRemindersSchema();
+  const result = await pool.query(
+    `
+    UPDATE reminders
+    SET title = $1, remind_date = $2, remind_time = $3, repeat = $4, notify = $5, updated_at = NOW()
+    WHERE id = $6 AND user_id = $7
+    RETURNING id
+    `,
+    [title, remindDate, remindTime, repeat, notify !== false, reminderId, userId]
+  );
+  if (result.rows.length === 0) return null;
+  return getReminderById(userId, reminderId);
+}
+
+async function deleteReminder(userId, reminderId) {
+  await ensureRemindersSchema();
+  const result = await pool.query(
+    `DELETE FROM reminders WHERE id = $1 AND user_id = $2 RETURNING id`,
+    [reminderId, userId]
+  );
+  return result.rows.length > 0;
+}
+
 async function transferSessionPerson(userId, sessionId, newPersonId) {
   const session = await getSessionById(userId, sessionId);
   if (!session) throw new Error('Session not found or access denied');
@@ -1247,6 +1379,11 @@ module.exports = {
   getVersesBySessionIds,
   addSessionVerse,
   deleteSessionVerse,
+  getReminders,
+  getReminderById,
+  createReminder,
+  updateReminder,
+  deleteReminder,
   transferSessionPerson,
   getGroupById,
   createGroup,
