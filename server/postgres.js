@@ -172,6 +172,53 @@ async function ensureRemindersSchema() {
   return remindersReadyPromise;
 }
 
+let journalReadyPromise = null;
+
+// Prayer Journal: one general daily reflection per entry, plus the passages of it that are
+// about specific people. entry_date is the user's own calendar day (no timezone shifting).
+// person_id has no FK (persons was migrated without a guaranteed PK); reads join persons so
+// links to deleted people disappear, and deletePerson removes them explicitly.
+async function ensureJournalSchema() {
+  if (!journalReadyPromise) {
+    journalReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS journal_entries (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          body TEXT NOT NULL,
+          entry_date DATE NOT NULL,
+          prompt TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_journal_entries_user_date
+        ON journal_entries(user_id, entry_date DESC, created_at DESC)
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS journal_entry_people (
+          id SERIAL PRIMARY KEY,
+          entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          person_id INTEGER NOT NULL,
+          excerpt TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (entry_id, person_id)
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_journal_entry_people_person
+        ON journal_entry_people(user_id, person_id)
+      `);
+    })().catch((err) => {
+      journalReadyPromise = null;
+      throw err;
+    });
+  }
+  return journalReadyPromise;
+}
+
 // User helper functions mirroring the SQLite dbHelpers API where needed
 
 // Some environments were migrated with `id INTEGER PRIMARY KEY` (no DEFAULT),
@@ -398,10 +445,13 @@ async function updateUsername(userId, username) {
 async function deleteUserAndAllData(userId) {
   const uid = Number(userId);
   await ensureRemindersSchema();
+  await ensureJournalSchema();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM reminders WHERE user_id = $1', [uid]);
+    await client.query('DELETE FROM journal_entry_people WHERE user_id = $1', [uid]);
+    await client.query('DELETE FROM journal_entries WHERE user_id = $1', [uid]);
     await client.query('DELETE FROM calendar_events WHERE user_id = $1', [uid]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [uid]);
     await client.query(
@@ -537,9 +587,10 @@ async function getAllPersonData(userId, personId) {
   if (!person) {
     return { person: null, sessions: [], metadata: [] };
   }
-  const [sessions, metadata] = await Promise.all([
+  const [sessions, metadata, reflections] = await Promise.all([
     getSessionsByPerson(userId, personId),
     getPersonMetadata(userId, personId),
+    getReflectionsForPerson(userId, personId),
   ]);
   const verses = await getVersesBySessionIds(sessions.map((s) => s.id));
   const versesBySession = new Map();
@@ -550,7 +601,7 @@ async function getAllPersonData(userId, personId) {
   for (const session of sessions) {
     session.verses = versesBySession.get(session.id) || [];
   }
-  return { person, sessions, metadata };
+  return { person, sessions, metadata, reflections };
 }
 
 async function getAllPersonDataForPersonIds(userId, personIds) {
@@ -837,6 +888,12 @@ async function updatePerson(id, firstName, lastName, fullName) {
 }
 
 async function deletePerson(userId, personId) {
+  // The reflections themselves stay in the journal; only the link to this person goes.
+  await ensureJournalSchema();
+  await pool.query(
+    `DELETE FROM journal_entry_people WHERE user_id = $1 AND person_id = $2`,
+    [userId, personId]
+  );
   await pool.query(
     `
     DELETE FROM persons
@@ -1148,6 +1205,194 @@ async function deleteReminder(userId, reminderId) {
   return result.rows.length > 0;
 }
 
+// ----- Prayer Journal -----
+
+const JOURNAL_ENTRY_COLUMNS = `
+  e.id, e.user_id, e.body, e.prompt, e.created_at, e.updated_at,
+  to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date
+`;
+
+/** Links for a set of entries, skipping people who have since been deleted. */
+async function getJournalLinks(userId, entryIds) {
+  if (!entryIds.length) return new Map();
+  const result = await pool.query(
+    `
+    SELECT l.entry_id, l.person_id, l.excerpt, p.full_name AS person_name
+    FROM journal_entry_people l
+    INNER JOIN persons p ON p.id = l.person_id AND p.user_id = l.user_id
+    WHERE l.user_id = $1 AND l.entry_id = ANY($2::int[])
+    ORDER BY l.id ASC
+    `,
+    [userId, entryIds]
+  );
+  const byEntry = new Map();
+  for (const row of result.rows) {
+    if (!byEntry.has(row.entry_id)) byEntry.set(row.entry_id, []);
+    byEntry.get(row.entry_id).push({
+      person_id: row.person_id,
+      person_name: row.person_name,
+      excerpt: row.excerpt,
+    });
+  }
+  return byEntry;
+}
+
+async function listJournalEntries(userId, { limit = 50, offset = 0 } = {}) {
+  await ensureJournalSchema();
+  const result = await pool.query(
+    `
+    SELECT ${JOURNAL_ENTRY_COLUMNS}
+    FROM journal_entries e
+    WHERE e.user_id = $1
+    ORDER BY e.entry_date DESC, e.created_at DESC
+    LIMIT $2 OFFSET $3
+    `,
+    [userId, limit, offset]
+  );
+  const links = await getJournalLinks(userId, result.rows.map((r) => r.id));
+  return result.rows.map((entry) => ({ ...entry, people: links.get(entry.id) || [] }));
+}
+
+async function getJournalEntry(userId, entryId) {
+  await ensureJournalSchema();
+  const result = await pool.query(
+    `
+    SELECT ${JOURNAL_ENTRY_COLUMNS}
+    FROM journal_entries e
+    WHERE e.user_id = $1 AND e.id = $2
+    LIMIT 1
+    `,
+    [userId, entryId]
+  );
+  const entry = result.rows[0];
+  if (!entry) return null;
+  const links = await getJournalLinks(userId, [entry.id]);
+  return { ...entry, people: links.get(entry.id) || [] };
+}
+
+async function createJournalEntry(userId, { body, entryDate, prompt }) {
+  await ensureJournalSchema();
+  const result = await pool.query(
+    `
+    INSERT INTO journal_entries (user_id, body, entry_date, prompt)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id
+    `,
+    [userId, body, entryDate, prompt || null]
+  );
+  return getJournalEntry(userId, result.rows[0].id);
+}
+
+/**
+ * Update a reflection's text. Links named in removePersonIds (their excerpt no longer appears
+ * in the new text) are dropped in the same transaction.
+ */
+async function updateJournalEntry(userId, entryId, { body, entryDate, prompt }, removePersonIds = []) {
+  await ensureJournalSchema();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const updated = await client.query(
+      `
+      UPDATE journal_entries
+      SET body = $1, entry_date = $2, prompt = $3, updated_at = NOW()
+      WHERE id = $4 AND user_id = $5
+      RETURNING id
+      `,
+      [body, entryDate, prompt || null, entryId, userId]
+    );
+    if (updated.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    if (removePersonIds.length) {
+      await client.query(
+        `DELETE FROM journal_entry_people WHERE entry_id = $1 AND user_id = $2 AND person_id = ANY($3::int[])`,
+        [entryId, userId, removePersonIds]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+  return getJournalEntry(userId, entryId);
+}
+
+async function deleteJournalEntry(userId, entryId) {
+  await ensureJournalSchema();
+  const result = await pool.query(
+    `DELETE FROM journal_entries WHERE id = $1 AND user_id = $2 RETURNING id`,
+    [entryId, userId]
+  );
+  return result.rowCount > 0;
+}
+
+/**
+ * Replace every person link on a reflection with the confirmed set from the review screen.
+ * Throws "not found" errors when the entry or any person is not this user's.
+ */
+async function replaceJournalLinks(userId, entryId, links) {
+  await ensureJournalSchema();
+  const entry = await getJournalEntry(userId, entryId);
+  if (!entry) throw new Error('Journal entry not found or access denied');
+
+  const personIds = links.map((l) => l.personId);
+  if (personIds.length) {
+    const owned = await pool.query(
+      `SELECT id FROM persons WHERE user_id = $1 AND id = ANY($2::int[])`,
+      [userId, personIds]
+    );
+    if (owned.rowCount !== new Set(personIds).size) {
+      throw new Error('Person not found or access denied');
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM journal_entry_people WHERE entry_id = $1 AND user_id = $2`, [entryId, userId]);
+    for (const link of links) {
+      await client.query(
+        `INSERT INTO journal_entry_people (entry_id, user_id, person_id, excerpt) VALUES ($1, $2, $3, $4)`,
+        [entryId, userId, link.personId, link.excerpt]
+      );
+    }
+    if (personIds.length) {
+      // Same as a new prayer request: people with fresh reflections rise in the People list.
+      await client.query(
+        `UPDATE persons SET updated_at = NOW() WHERE user_id = $1 AND id = ANY($2::int[])`,
+        [userId, personIds]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+  return getJournalEntry(userId, entryId);
+}
+
+/** A person's passages from the journal, oldest first, so the profile reads as a journey. */
+async function getReflectionsForPerson(userId, personId) {
+  await ensureJournalSchema();
+  const result = await pool.query(
+    `
+    SELECT l.entry_id, l.excerpt, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date, e.created_at
+    FROM journal_entry_people l
+    INNER JOIN journal_entries e ON e.id = l.entry_id AND e.user_id = l.user_id
+    WHERE l.user_id = $1 AND l.person_id = $2
+    ORDER BY e.entry_date ASC, e.created_at ASC
+    `,
+    [userId, personId]
+  );
+  return result.rows;
+}
+
 async function transferSessionPerson(userId, sessionId, newPersonId) {
   const session = await getSessionById(userId, sessionId);
   if (!session) throw new Error('Session not found or access denied');
@@ -1384,6 +1629,13 @@ module.exports = {
   createReminder,
   updateReminder,
   deleteReminder,
+  listJournalEntries,
+  getJournalEntry,
+  createJournalEntry,
+  updateJournalEntry,
+  deleteJournalEntry,
+  replaceJournalLinks,
+  getReflectionsForPerson,
   transferSessionPerson,
   getGroupById,
   createGroup,
