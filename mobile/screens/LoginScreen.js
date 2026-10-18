@@ -105,7 +105,15 @@ export default function LoginScreen({ navigation, onLogin }) {
             Alert.alert('Privacy policy required', 'You must agree to ToHim privacy policy before creating an account.');
             return;
           }
-          await authAPI.register(username.trim(), email.trim(), password, agreedToPrivacy);
+          const result = await authAPI.register(username.trim(), email.trim(), password, agreedToPrivacy);
+          if (result.token) {
+            // No email verification on this server: the account is ready now.
+            onLogin && onLogin({
+              needsProfileSetup: result.needsProfileSetup === true,
+              needsOnboarding: result.user?.onboarding_completed === false,
+            });
+            return;
+          }
           setAwaitingVerification(true);
           Alert.alert('Verification Required', 'A verification code was sent to your email.');
         } else {

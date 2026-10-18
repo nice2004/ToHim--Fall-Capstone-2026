@@ -418,8 +418,6 @@ export default function PersonDetailScreen({ route, navigation }) {
   }
 
   const { person, sessions, metadata } = personData;
-  const answeredCount = (sessions || []).filter((s) => s.answered).length;
-  const activeCount = (sessions || []).length - answeredCount;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -446,24 +444,6 @@ export default function PersonDetailScreen({ route, navigation }) {
           <Text style={styles.date}>
             Added {formatShortDate(person.created_at)}
           </Text>
-          {sessions && sessions.length > 0 && (
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{sessions.length}</Text>
-                <Text style={styles.statLabel}>Requests</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{activeCount}</Text>
-                <Text style={styles.statLabel}>Active</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={[styles.statNumber, { color: ANSWERED_COLOR }]}>{answeredCount}</Text>
-                <Text style={styles.statLabel}>Answered</Text>
-              </View>
-            </View>
-          )}
         </GlassSurface>
         {offlineNotice && (
           <View style={styles.offlineBanner}>
@@ -487,9 +467,6 @@ export default function PersonDetailScreen({ route, navigation }) {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Prayer Requests</Text>
-              <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{sessions.length}</Text>
-              </View>
             </View>
             {sessions.map((session) => {
               const isAnswered = !!session.answered;
@@ -1015,37 +992,6 @@ function createStyles(colors) {
     fontSize: 14,
     color: colors.textSecondary,
   },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    marginTop: 18,
-    paddingTop: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  statDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 28,
-    backgroundColor: colors.border,
-  },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1075,19 +1021,6 @@ function createStyles(colors) {
     alignItems: 'center',
     gap: 8,
     marginBottom: 14,
-  },
-  countBadge: {
-    minWidth: 26,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: RADIUS.chip,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-  },
-  countBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.primary,
   },
   // Each prayer request reads like a separate note: colored edge on the left,
   // a small header line, the text, then its actions along the bottom.

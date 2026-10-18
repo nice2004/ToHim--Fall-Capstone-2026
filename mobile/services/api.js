@@ -14,7 +14,7 @@ import Constants from 'expo-constants';
 //   EXPO_PUBLIC_API_BASE_URL=https://<your-tunnel>/api npm start        (ngrok, see START_NGROK.sh)
 // Android emulator: http://10.0.2.2:3000/api · iOS simulator: http://localhost:3000/api
 const PRODUCTION_API_URL =
-  Constants.expoConfig?.extra?.apiBaseUrl || 'https://tabbi.onrender.com/api';
+  Constants.expoConfig?.extra?.apiBaseUrl || 'https://tohim-api.onrender.com/api';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || PRODUCTION_API_URL;
 
@@ -422,6 +422,10 @@ export const authAPI = {
         password,
         privacyConsentAccepted,
       });
+      // Servers that skip email verification sign the new user in right away.
+      if (response.data.token) {
+        await tokenStorage.saveToken(response.data.token);
+      }
       return response.data;
     } catch (error) {
       console.error('[Auth] Error registering:', error);
@@ -727,6 +731,49 @@ export const calendarAPI = {
       return response.data;
     } catch (error) {
       console.error('[Calendar] Error updating calendar event:', error);
+      throw error;
+    }
+  },
+};
+
+export const reminderAPI = {
+  getAll: async () => {
+    try {
+      const response = await api.get('/reminders');
+      return response.data;
+    } catch (error) {
+      console.error('[Reminders] Error fetching reminders:', error);
+      throw error;
+    }
+  },
+
+  // { title, remindDate: 'YYYY-MM-DD', remindTime: 'HH:MM', repeat, notify, personId?, sessionId? }
+  create: async (reminder) => {
+    try {
+      const response = await api.post('/reminders', reminder);
+      return response.data;
+    } catch (error) {
+      console.error('[Reminders] Error creating reminder:', error);
+      throw error;
+    }
+  },
+
+  update: async (reminderId, { title, remindDate, remindTime, repeat, notify }) => {
+    try {
+      const response = await api.put(`/reminders/${reminderId}`, { title, remindDate, remindTime, repeat, notify });
+      return response.data;
+    } catch (error) {
+      console.error('[Reminders] Error updating reminder:', error);
+      throw error;
+    }
+  },
+
+  delete: async (reminderId) => {
+    try {
+      const response = await api.delete(`/reminders/${reminderId}`);
+      return response.data;
+    } catch (error) {
+      console.error('[Reminders] Error deleting reminder:', error);
       throw error;
     }
   },

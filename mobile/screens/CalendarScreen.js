@@ -9,32 +9,50 @@ import {
   SafeAreaView,
   Modal,
   Alert,
-  Dimensions,
   TextInput,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { calendarAPI } from '../services/api';
+import { calendarAPI, personAPI } from '../services/api';
 import { cacheCalendarEvents, getCachedCalendarEvents } from '../services/localDb';
 import { getLastSyncAt } from '../services/syncService';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
+import ReminderEditor from '../components/ReminderEditor';
+import {
+  refreshReminders,
+  occursOn,
+  nextOccurrence,
+  describeSchedule,
+  formatReminderTime,
+  addReminderToGoogleCalendar,
+} from '../services/reminders';
 
-const VIEW_MODES = {
-  MONTH: 'month',
-  WEEK: 'week',
-  DAY: 'day',
+const REMINDER_COLOR = '#AF52DE';
+
+// How far ahead the "Upcoming" list under the month grid looks, and how many items it shows.
+const UPCOMING_WINDOW_DAYS = 60;
+const UPCOMING_LIMIT = 8;
+
+// The calendar shows when a prayer request is happening ("presentation on Monday"), which the
+// server stores as 'referenced' events. 'session' events only mark the day a request was
+// recorded, so they're left off the grid and the Upcoming list.
+const isHappeningDate = (event) => event.event_type !== 'session';
+
+// Format a Date as YYYY-MM-DD in local timezone (not UTC)
+const toDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
-
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function CalendarScreen({ navigation }) {
   const { colors, isDark } = useTheme();
-  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState(VIEW_MODES.MONTH);
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedDateEvents, setSelectedDateEvents] = useState([]);
@@ -49,46 +67,30 @@ export default function CalendarScreen({ navigation }) {
   const [editYear, setEditYear] = useState(new Date().getFullYear());
   const [editMonth, setEditMonth] = useState(new Date().getMonth() + 1);
   const [editDay, setEditDay] = useState(new Date().getDate());
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [isOpeningRequest, setIsOpeningRequest] = useState(false);
+  const [reminders, setReminders] = useState([]);
+  // { reminder } to edit, or { defaults } to create; null when the editor is closed
+  const [reminderEditor, setReminderEditor] = useState(null);
 
   const loadEvents = useCallback(async () => {
+    // Declared outside try so the offline fallback in catch can reuse the same range.
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const startDate = toDateKey(new Date(year, month, 1));
+    const endDate = toDateKey(new Date(year, month + 1, 0));
+
     try {
       setIsLoading(true);
-      let startDate, endDate;
-      
-      // Helper to format date as YYYY-MM-DD in local timezone
-      const formatDateForAPI = (date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      };
-
-      if (viewMode === VIEW_MODES.DAY) {
-        startDate = formatDateForAPI(currentDate);
-        endDate = startDate;
-      } else if (viewMode === VIEW_MODES.WEEK) {
-        const weekStart = getWeekStart(currentDate);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        startDate = formatDateForAPI(weekStart);
-        endDate = formatDateForAPI(weekEnd);
-      } else {
-        // Month view
-        const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        startDate = formatDateForAPI(new Date(year, month, 1));
-        endDate = formatDateForAPI(new Date(year, month + 1, 0));
-      }
-      
       const response = await calendarAPI.getEvents(startDate, endDate);
       const eventList = response.events || [];
-      setEvents(eventList);
+      setEvents(eventList.filter(isHappeningDate));
       await cacheCalendarEvents(eventList);
       setOfflineNotice(null);
     } catch (error) {
       console.error('[CalendarScreen] Error loading events:', error);
       const cached = await getCachedCalendarEvents(startDate, endDate);
-      setEvents(cached);
+      setEvents(cached.filter(isHappeningDate));
       const lastSyncAt = await getLastSyncAt();
       if (cached.length > 0) {
         setOfflineNotice(
@@ -102,28 +104,59 @@ export default function CalendarScreen({ navigation }) {
     } finally {
       setIsLoading(false);
     }
-  }, [currentDate, viewMode]);
+  }, [currentDate]);
+
+  // Dates coming up from today, independent of which month is on screen.
+  const loadUpcoming = useCallback(async () => {
+    const start = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + UPCOMING_WINDOW_DAYS);
+    const startDate = toDateKey(start);
+    const endDate = toDateKey(end);
+    let list;
+    try {
+      const response = await calendarAPI.getEvents(startDate, endDate);
+      list = response.events || [];
+      await cacheCalendarEvents(list);
+    } catch (error) {
+      console.warn('[CalendarScreen] Upcoming events unavailable, using cache:', error?.message || error);
+      try {
+        list = await getCachedCalendarEvents(startDate, endDate);
+      } catch {
+        list = [];
+      }
+    }
+    const sorted = list.filter(isHappeningDate).sort((a, b) =>
+      String(a.event_date).split('T')[0].localeCompare(String(b.event_date).split('T')[0])
+    );
+    setUpcomingEvents(sorted.slice(0, UPCOMING_LIMIT));
+  }, []);
 
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
 
+  const loadReminders = useCallback(async () => {
+    const { reminders: list } = await refreshReminders();
+    setReminders(list);
+  }, []);
+
+  useEffect(() => {
+    loadUpcoming();
+    loadReminders();
+  }, [loadUpcoming, loadReminders]);
+
   // Refetch events when the Calendar tab gains focus so the just-recorded session
-  // (and its dates) show up immediately instead of only after changing month/week.
+  // (and its dates) show up immediately instead of only after changing month.
   useEffect(() => {
     if (!navigation) return undefined;
     const unsubscribe = navigation.addListener('focus', () => {
       loadEvents();
+      loadUpcoming();
+      loadReminders();
     });
     return unsubscribe;
-  }, [navigation, loadEvents]);
-
-  const getWeekStart = (date) => {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day;
-    return new Date(d.setDate(diff));
-  };
+  }, [navigation, loadEvents, loadUpcoming, loadReminders]);
 
   const getDaysInMonth = (date) => {
     const year = date.getFullYear();
@@ -138,17 +171,6 @@ export default function CalendarScreen({ navigation }) {
       days.push(null);
     }
     for (let day = 1; day <= daysInMonth; day++) {
-      days.push(day);
-    }
-    return days;
-  };
-
-  const getWeekDays = (date) => {
-    const weekStart = getWeekStart(date);
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(weekStart);
-      day.setDate(day.getDate() + i);
       days.push(day);
     }
     return days;
@@ -174,12 +196,26 @@ export default function CalendarScreen({ navigation }) {
 
   const getEventsForDate = (date) => {
     const dateStr = formatDateString(date);
-    
+
+    // Reminders are shown as calendar items on every day they fire.
+    const reminderItems = reminders
+      .filter((reminder) => occursOn(reminder, dateStr))
+      .map((reminder) => ({
+        id: `reminder-${reminder.id}-${dateStr}`,
+        event_type: 'reminder',
+        event_date: dateStr,
+        person_id: reminder.person_id,
+        session_id: reminder.session_id,
+        person_name: reminder.person_name,
+        summary: reminder.title,
+        reminder,
+      }));
+
     return events.filter(event => {
       // Extract date part from event_date (which is stored as YYYY-MM-DD)
       const eventDate = event.event_date.split('T')[0];
       return eventDate === dateStr;
-    }).sort((a, b) => {
+    }).concat(reminderItems).sort((a, b) => {
       // Sort by time for session events, then by type
       if (a.session_created_at && b.session_created_at) {
         return new Date(a.session_created_at) - new Date(b.session_created_at);
@@ -197,16 +233,9 @@ export default function CalendarScreen({ navigation }) {
     }
   };
 
-  const navigateDate = (direction) => {
-    const newDate = new Date(currentDate);
-    if (viewMode === VIEW_MODES.DAY) {
-      newDate.setDate(newDate.getDate() + direction);
-    } else if (viewMode === VIEW_MODES.WEEK) {
-      newDate.setDate(newDate.getDate() + (direction * 7));
-    } else {
-      newDate.setMonth(newDate.getMonth() + direction);
-    }
-    setCurrentDate(newDate);
+  const navigateMonth = (direction) => {
+    // Pin to the 1st so e.g. Jan 31 + 1 month doesn't skip February.
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + direction, 1));
   };
 
   // Parse a date-only string (YYYY-MM-DD) as LOCAL midnight so it lands on the right calendar day.
@@ -248,11 +277,28 @@ export default function CalendarScreen({ navigation }) {
   };
 
   const getEventColor = (eventType) => {
+    if (eventType === 'reminder') return REMINDER_COLOR;
     return eventType === 'session' ? colors.primary : '#22C55E';
   };
 
-  const getEventIcon = (eventType) => {
-    return eventType === 'session' ? 'chatbubble' : 'calendar';
+  // Reminders are titled by what they're for ("Morning prayer"); events by the person.
+  const getItemTitle = (event) =>
+    event.event_type === 'reminder' ? event.summary : event.person_name || 'Unknown';
+
+  const openNewReminder = (defaults = {}) => setReminderEditor({ defaults });
+  const openEditReminder = (reminder) => setReminderEditor({ reminder });
+
+  // "Remind me to pray" for the person/request behind a calendar event.
+  const remindForEvent = (event) => {
+    setReminderEditor({
+      defaults: {
+        personId: event.person_id,
+        sessionId: event.session_id,
+        personName: event.person_name,
+        title: event.person_name ? `Pray for ${event.person_name}` : undefined,
+        date: String(event.event_date).split('T')[0],
+      },
+    });
   };
 
   const navigateEvent = (direction) => {
@@ -266,203 +312,301 @@ export default function CalendarScreen({ navigation }) {
   const renderMonthView = () => {
     const days = getDaysInMonth(currentDate);
     const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    const today = new Date();
 
     return (
-      <>
-        <View style={styles.weekDaysContainer}>
-          {weekDays.map(day => (
-            <View key={day} style={styles.weekDay}>
-              <Text style={styles.weekDayText}>{day}</Text>
-            </View>
-          ))}
-        </View>
-        <ScrollView
-          style={[styles.calendarContainer, { backgroundColor: colors.background }]}
-          contentContainerStyle={{ backgroundColor: colors.background }}
-        >
-          <View style={[styles.calendarGrid, { backgroundColor: colors.background }]}>
+      <ScrollView style={styles.calendarContainer} contentContainerStyle={styles.calendarContent}>
+        <Text style={styles.screenTitle} accessibilityRole="header">
+          Calendar
+        </Text>
+        {offlineNotice && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="cloud-offline-outline" size={16} color="#665200" />
+            <Text style={styles.offlineBannerText}>{offlineNotice}</Text>
+          </View>
+        )}
+
+        <GlassSurface style={styles.monthCard}>
+          <View style={styles.monthHeader}>
+            <TouchableOpacity
+              onPress={() => navigateMonth(-1)}
+              style={styles.navButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Previous month"
+            >
+              <Ionicons name="chevron-back" size={20} color={colors.primary} />
+            </TouchableOpacity>
+            <Text style={styles.monthTitle}>{monthName}</Text>
+            <TouchableOpacity
+              onPress={() => navigateMonth(1)}
+              style={styles.navButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+            >
+              <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.weekDaysContainer}>
+            {weekDays.map((day, i) => (
+              <View key={`${day}-${i}`} style={styles.weekDay}>
+                <Text style={styles.weekDayText}>{day}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.calendarGrid}>
             {days.map((day, index) => {
               const dateEvents = day ? getEventsForDate(day) : [];
-              const isToday = day && 
-                new Date().getDate() === day &&
-                new Date().getMonth() === currentDate.getMonth() &&
-                new Date().getFullYear() === currentDate.getFullYear();
+              const isToday =
+                !!day &&
+                today.getDate() === day &&
+                today.getMonth() === currentDate.getMonth() &&
+                today.getFullYear() === currentDate.getFullYear();
+              // One dot per kind of item that day (request date, mentioned date, reminder).
+              const dotTypes = [...new Set(dateEvents.map((e) => e.event_type))];
 
               return (
                 <Pressable
                   key={index}
                   disabled={!day}
                   android_ripple={
-                    isDark ? { color: 'rgba(255,255,255,0.1)' } : { color: 'rgba(0,0,0,0.06)' }
+                    isDark ? { color: 'rgba(255,255,255,0.1)', borderless: true } : { color: 'rgba(0,0,0,0.06)', borderless: true }
                   }
-                  style={({ pressed }) => [
-                    styles.dayCell,
-                    isToday && styles.todayCell,
-                    pressed && day && styles.dayCellPressed,
-                  ]}
+                  style={({ pressed }) => [styles.dayCell, pressed && day && styles.dayCellPressed]}
                   onPress={() => handleDatePress(day)}
+                  accessibilityRole={day ? 'button' : undefined}
+                  accessibilityLabel={
+                    day
+                      ? `${monthName.split(' ')[0]} ${day}${
+                          dateEvents.length ? `, ${dateEvents.length} ${dateEvents.length === 1 ? 'item' : 'items'}` : ''
+                        }`
+                      : undefined
+                  }
                 >
-                  {day && (
+                  {day ? (
                     <>
-                      <Text style={[styles.dayText, isToday && styles.todayText]}>
-                        {day}
-                      </Text>
-                      {dateEvents.length > 0 && (
-                        <View style={styles.eventsIndicator}>
-                          {dateEvents.slice(0, 3).map((event, eventIdx) => (
-                            <View
-                              key={eventIdx}
-                              style={[
-                                styles.eventDot,
-                                { backgroundColor: getEventColor(event.event_type) }
-                              ]}
-                            />
-                          ))}
-                          {dateEvents.length > 3 && (
-                            <Text style={styles.moreEventsText}>+{dateEvents.length - 3}</Text>
-                          )}
-                        </View>
-                      )}
+                      <View style={[styles.dayCircle, isToday && styles.todayCircle]}>
+                        <Text style={[styles.dayText, isToday && styles.todayText]}>{day}</Text>
+                      </View>
+                      <View style={styles.eventsIndicator}>
+                        {dotTypes.map((type) => (
+                          <View
+                            key={type}
+                            style={[styles.eventDot, { backgroundColor: getEventColor(type) }]}
+                          />
+                        ))}
+                      </View>
                     </>
-                  )}
+                  ) : null}
                 </Pressable>
               );
             })}
           </View>
-        </ScrollView>
-      </>
-    );
-  };
+        </GlassSurface>
 
-  const renderWeekView = () => {
-    const weekDays = getWeekDays(currentDate);
-
-    return (
-      <ScrollView style={styles.weekContainer}>
-        {weekDays.map((day, index) => {
-          const dayEvents = getEventsForDate(day);
-          const today = new Date();
-          const isToday =
-            day.getDate() === today.getDate() &&
-            day.getMonth() === today.getMonth() &&
-            day.getFullYear() === today.getFullYear();
-          const dayName = day.toLocaleDateString('en-US', { weekday: 'short' });
-          const dayNumber = day.getDate();
-
-          return (
-            <View key={index} style={styles.weekDayColumn}>
-              <View style={[styles.weekDayHeader, isToday && styles.todayWeekHeader]}>
-                <Text style={[styles.weekDayName, isToday && styles.todayWeekDayName]}>
-                  {dayName}
-                </Text>
-                <Text style={[styles.weekDayNumber, isToday && styles.todayWeekDayNumber]}>
-                  {dayNumber}
-                </Text>
-              </View>
-              <View style={styles.weekDayEvents}>
-                {dayEvents.length === 0 ? (
-                  <Text style={styles.noWeekEventsText}>No events</Text>
-                ) : (
-                  dayEvents.map((event, eventIdx) => (
-                    <TouchableOpacity
-                      key={eventIdx}
-                      style={[
-                        styles.weekEventItem,
-                        { borderLeftColor: getEventColor(event.event_type) },
-                      ]}
-                      onPress={() => {
-                        setSelectedDate(day);
-                        setSelectedDateEvents(dayEvents);
-                        setCurrentEventIndex(eventIdx);
-                      }}
-                      activeOpacity={0.9}
-                    >
-                      <Text style={styles.weekEventPerson} numberOfLines={1}>
-                        {event.person_name || 'Unknown'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
-            </View>
-          );
-        })}
+        {renderUpcoming()}
+        {renderReminders()}
       </ScrollView>
     );
   };
 
-  const renderDayView = () => {
-    const dayEvents = getEventsForDate(currentDate);
-    const dayStr = currentDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+  const formatUpcomingDay = (dateStr) => {
+    const bare = String(dateStr).split('T')[0];
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (bare === toDateKey(today)) return 'Today';
+    if (bare === toDateKey(tomorrow)) return 'Tomorrow';
+    return parseDateLocal(bare).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
     });
-
-    return (
-      <ScrollView style={styles.dayContainer}>
-        <View style={styles.dayHeader}>
-          <Text style={styles.dayHeaderText}>{dayStr}</Text>
-          <Text style={styles.dayEventCount}>
-            {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
-          </Text>
-        </View>
-        {dayEvents.length === 0 ? (
-          <View style={styles.noEventsContainer}>
-            <Text style={styles.noEventsText}>No events on this day</Text>
-          </View>
-        ) : (
-          dayEvents.map((event, index) => (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.dayEventItem,
-                { borderLeftColor: getEventColor(event.event_type) }
-              ]}
-              onPress={() => {
-                setSelectedDate(currentDate);
-                setSelectedDateEvents(dayEvents);
-                setCurrentEventIndex(index);
-              }}
-              activeOpacity={0.9}
-            >
-              <View style={styles.dayEventHeader}>
-                {event.event_type === 'Prayer Request' && event.session_created_at && (
-                  <Text style={styles.dayEventTime}>
-                    {formatTime(event.session_created_at)}
-                  </Text>
-                )}
-                <View
-                  style={[
-                    styles.dayEventTypeBadge,
-                    { backgroundColor: getEventColor(event.event_type) }
-                  ]}
-                >
-                  <Ionicons
-                    name={getEventIcon(event.event_type)}
-                    size={14}
-                    color="#fff"
-                  />
-                  <Text style={styles.dayEventTypeText}>
-                    {event.event_type === 'session' ? 'Session' : 'Referenced'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.dayEventPerson}>{event.person_name || 'Unknown'}</Text>
-              {event.summary && (
-                <Text style={styles.dayEventSummary}>{event.summary}</Text>
-              )}
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
-    );
   };
+
+  const openUpcomingEvent = (event) => {
+    const bare = String(event.event_date).split('T')[0];
+    const sameDay = upcomingEvents.filter((e) => String(e.event_date).split('T')[0] === bare);
+    setSelectedDate(bare);
+    setSelectedDateEvents(sameDay);
+    setCurrentEventIndex(Math.max(0, sameDay.findIndex((e) => e.id === event.id)));
+  };
+
+  const renderUpcoming = () => (
+    <View style={styles.upcomingSection}>
+      <Text style={styles.upcomingTitle} accessibilityRole="header">
+        Upcoming
+      </Text>
+      {upcomingEvents.length === 0 ? (
+        <GlassSurface style={styles.upcomingEmpty}>
+          <Ionicons name="calendar-clear-outline" size={22} color={colors.textSecondary} />
+          <Text style={styles.upcomingEmptyText}>
+            Nothing coming up. Dates you mention in a prayer request, like an interview on Friday,
+            will show up here.
+          </Text>
+        </GlassSurface>
+      ) : (
+        upcomingEvents.map((event) => (
+          <TouchableOpacity
+            key={event.id}
+            onPress={() => openUpcomingEvent(event)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${event.person_name || 'Unknown'}, ${formatUpcomingDay(event.event_date)}${
+              event.summary ? `, ${event.summary}` : ''
+            }`}
+          >
+            <GlassSurface style={styles.upcomingItem}>
+              <View
+                style={[styles.upcomingAccent, { backgroundColor: getEventColor(event.event_type) }]}
+              />
+              <View style={styles.upcomingText}>
+                <View style={styles.upcomingTopRow}>
+                  <Text style={styles.upcomingPerson} numberOfLines={1}>
+                    {event.person_name || 'Unknown'}
+                  </Text>
+                  <Text style={styles.upcomingDate}>{formatUpcomingDay(event.event_date)}</Text>
+                </View>
+                {event.summary ? (
+                  <Text style={styles.upcomingSummary} numberOfLines={2}>
+                    {event.summary}
+                  </Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                style={styles.upcomingBell}
+                onPress={() => remindForEvent(event)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Remind me to pray for ${event.person_name || 'this request'}`}
+              >
+                <Ionicons name="notifications-outline" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </GlassSurface>
+          </TouchableOpacity>
+        ))
+      )}
+    </View>
+  );
+
+  // Soonest first; finished one-time reminders drop to the bottom.
+  const sortedReminders = useMemo(() => {
+    const now = new Date();
+    return reminders
+      .map((reminder) => ({ reminder, next: nextOccurrence(reminder, now) }))
+      .sort((a, b) => {
+        if (!a.next && !b.next) return 0;
+        if (!a.next) return 1;
+        if (!b.next) return -1;
+        return a.next - b.next;
+      });
+  }, [reminders]);
+
+  const renderReminders = () => (
+    <View style={styles.upcomingSection}>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={[styles.upcomingTitle, styles.sectionHeaderTitle]} accessibilityRole="header">
+          Prayer reminders
+        </Text>
+        <TouchableOpacity
+          style={styles.addReminderButton}
+          onPress={() => openNewReminder()}
+          accessibilityRole="button"
+          accessibilityLabel="Add a prayer reminder"
+        >
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.addReminderText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+      {sortedReminders.length === 0 ? (
+        <GlassSurface style={styles.upcomingEmpty}>
+          <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} />
+          <View style={styles.upcomingText}>
+            <Text style={styles.upcomingEmptyText}>
+              Set a daily or weekly prayer time, or tap the bell on an upcoming request to be reminded
+              to pray for that person.
+            </Text>
+            <TouchableOpacity
+              onPress={() => openNewReminder({ title: 'Prayer time', repeat: 'daily' })}
+              accessibilityRole="button"
+            >
+              <Text style={styles.emptyLink}>Set my prayer time</Text>
+            </TouchableOpacity>
+          </View>
+        </GlassSurface>
+      ) : (
+        sortedReminders.map(({ reminder, next }) => (
+          <TouchableOpacity
+            key={reminder.id}
+            onPress={() => openEditReminder(reminder)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${reminder.title}, ${describeSchedule(reminder)}. Edit reminder`}
+          >
+            <GlassSurface style={[styles.upcomingItem, !next && styles.reminderFinished]}>
+              <View style={[styles.upcomingAccent, { backgroundColor: REMINDER_COLOR }]} />
+              <View style={styles.upcomingText}>
+                <Text style={styles.upcomingPerson} numberOfLines={1}>
+                  {reminder.title}
+                </Text>
+                <Text style={styles.reminderSchedule}>
+                  {next ? describeSchedule(reminder) : `Done · ${describeSchedule(reminder)}`}
+                </Text>
+                {reminder.person_name ? (
+                  <Text style={styles.upcomingSummary} numberOfLines={1}>
+                    For {reminder.person_name}
+                  </Text>
+                ) : null}
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+            </GlassSurface>
+          </TouchableOpacity>
+        ))
+      )}
+    </View>
+  );
 
   const currentEvent = selectedDateEvents[currentEventIndex];
   const hasMultipleEvents = selectedDateEvents.length > 1;
+
+  const closeEventModal = () => {
+    setSelectedDate(null);
+    setSelectedDateEvents([]);
+    setCurrentEventIndex(0);
+  };
+
+  // Jump from a calendar event to the prayer request it came from (People tab).
+  const openPrayerRequest = async (event) => {
+    if (!event?.person_id || !event?.session_id) return;
+    setIsOpeningRequest(true);
+    try {
+      const data = await personAPI.getById(event.person_id);
+      const session = (data?.sessions || []).find((s) => String(s.id) === String(event.session_id));
+      if (!session) {
+        Alert.alert('Not found', 'This prayer request is no longer available.');
+        return;
+      }
+      closeEventModal();
+      navigation.navigate('People', {
+        screen: 'PrayerRequestDetail',
+        initial: false,
+        params: {
+          session,
+          personId: data.person.id,
+          personName: data.person.full_name,
+        },
+      });
+    } catch (error) {
+      console.error('[CalendarScreen] Error opening prayer request:', error);
+      Alert.alert('Error', 'Could not open this prayer request. Please try again.');
+    } finally {
+      setIsOpeningRequest(false);
+    }
+  };
 
   const openEditEventModal = () => {
     if (!currentEvent) return;
@@ -494,9 +638,9 @@ export default function CalendarScreen({ navigation }) {
       });
       setShowEditEventModal(false);
       setEditingEvent(null);
-      await loadEvents();
+      await Promise.all([loadEvents(), loadUpcoming()]);
       const refreshed = await calendarAPI.getEventsByDate(formattedDate);
-      setSelectedDateEvents(refreshed.events || []);
+      setSelectedDateEvents((refreshed.events || []).filter(isHappeningDate));
       setCurrentEventIndex(0);
       setSelectedDate(formattedDate);
     } catch (error) {
@@ -526,98 +670,8 @@ export default function CalendarScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <GlassSurface style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigateDate(-1)}
-          style={styles.navButton}
-          accessibilityRole="button"
-          accessibilityLabel="Previous period"
-        >
-          <Ionicons
-            name="chevron-back"
-            size={24}
-            color={colors.primary}
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-          />
-        </TouchableOpacity>
-        <Text style={styles.title} accessibilityRole="header">
-          {viewMode === VIEW_MODES.DAY
-            ? currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-            : viewMode === VIEW_MODES.WEEK
-            ? getWeekDays(currentDate)[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' - ' + getWeekDays(currentDate)[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            : currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-        </Text>
-        <TouchableOpacity
-          onPress={() => navigateDate(1)}
-          style={styles.navButton}
-          accessibilityRole="button"
-          accessibilityLabel="Next period"
-        >
-          <Ionicons
-            name="chevron-forward"
-            size={24}
-            color={colors.primary}
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-          />
-        </TouchableOpacity>
-      </GlassSurface>
+      {renderMonthView()}
 
-      <GlassSurface style={styles.viewModeSelector}>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === VIEW_MODES.MONTH && styles.viewModeButtonActive]}
-          onPress={() => {
-            setViewMode(VIEW_MODES.MONTH);
-          }}
-          activeOpacity={0.9}
-          accessibilityRole="button"
-          accessibilityLabel="Month view"
-          accessibilityState={{ selected: viewMode === VIEW_MODES.MONTH }}
-        >
-          <Text style={[styles.viewModeText, viewMode === VIEW_MODES.MONTH && styles.viewModeTextActive]}>
-            Month
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === VIEW_MODES.WEEK && styles.viewModeButtonActive]}
-          onPress={() => {
-            setViewMode(VIEW_MODES.WEEK);
-          }}
-          activeOpacity={0.9}
-          accessibilityRole="button"
-          accessibilityLabel="Week view"
-          accessibilityState={{ selected: viewMode === VIEW_MODES.WEEK }}
-        >
-          <Text style={[styles.viewModeText, viewMode === VIEW_MODES.WEEK && styles.viewModeTextActive]}>
-            Week
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === VIEW_MODES.DAY && styles.viewModeButtonActive]}
-          onPress={() => {
-            setViewMode(VIEW_MODES.DAY);
-          }}
-          activeOpacity={0.9}
-          accessibilityRole="button"
-          accessibilityLabel="Day view"
-          accessibilityState={{ selected: viewMode === VIEW_MODES.DAY }}
-        >
-          <Text style={[styles.viewModeText, viewMode === VIEW_MODES.DAY && styles.viewModeTextActive]}>
-            Day
-          </Text>
-        </TouchableOpacity>
-      </GlassSurface>
-      {offlineNotice && (
-        <View style={styles.offlineBanner}>
-          <Ionicons name="cloud-offline-outline" size={16} color="#665200" />
-          <Text style={styles.offlineBannerText}>{offlineNotice}</Text>
-        </View>
-      )}
-
-      {viewMode === VIEW_MODES.MONTH && renderMonthView()}
-      {viewMode === VIEW_MODES.WEEK && renderWeekView()}
-      {viewMode === VIEW_MODES.DAY && renderDayView()}
 
       {/* Event Detail Modal */}
       <Modal
@@ -625,11 +679,7 @@ export default function CalendarScreen({ navigation }) {
         transparent={true}
         animationType="slide"
         accessibilityViewIsModal={Platform.OS === 'ios'}
-        onRequestClose={() => {
-          setSelectedDate(null);
-          setSelectedDateEvents([]);
-          setCurrentEventIndex(0);
-        }}
+        onRequestClose={closeEventModal}
       >
         <View style={styles.modalOverlay}>
           <GlassSurface style={styles.modalContent} intensity={52} strong>
@@ -678,11 +728,7 @@ export default function CalendarScreen({ navigation }) {
                 )}
               </View>
               <TouchableOpacity
-                onPress={() => {
-                  setSelectedDate(null);
-                  setSelectedDateEvents([]);
-                  setCurrentEventIndex(0);
-                }}
+                onPress={closeEventModal}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Close event details"
@@ -690,7 +736,7 @@ export default function CalendarScreen({ navigation }) {
                 <Ionicons
                   name="close"
                   size={24}
-                  color="#000"
+                  color={colors.textPrimary}
                   accessibilityElementsHidden
                   importantForAccessibility="no"
                 />
@@ -707,11 +753,15 @@ export default function CalendarScreen({ navigation }) {
                     ]}
                   />
                   <Text style={styles.modalEventTypeText}>
-                    {currentEvent.event_type === 'session' ? 'Prayer Request Date' : 'Referenced Date'}
+                    {currentEvent.event_type === 'reminder'
+                      ? 'Prayer Reminder'
+                      : currentEvent.event_type === 'session'
+                      ? 'Prayer Request Date'
+                      : 'Prayer Request Event'}
                   </Text>
                 </View>
-                
-                <Text style={styles.modalPersonName}>{currentEvent.person_name || 'Unknown'}</Text>
+
+                <Text style={styles.modalPersonName}>{getItemTitle(currentEvent)}</Text>
                 <Text style={styles.modalDate}>
                   {formatDate(currentEvent.event_date)}
                   {currentEvent.event_type === 'session' && currentEvent.session_created_at && (
@@ -719,21 +769,58 @@ export default function CalendarScreen({ navigation }) {
                       {' '}at {formatTime(currentEvent.session_created_at)}
                     </Text>
                   )}
+                  {currentEvent.event_type === 'reminder' && (
+                    <Text style={styles.modalTime}>
+                      {' '}at {formatReminderTime(currentEvent.reminder)}
+                    </Text>
+                  )}
                 </Text>
-                
-                {currentEvent.summary && (
+
+                {currentEvent.event_type === 'reminder' ? (
+                  <View style={styles.modalSummaryContainer}>
+                    <Text style={styles.modalSummaryLabel}>Repeats:</Text>
+                    <Text style={styles.modalSummaryText}>{describeSchedule(currentEvent.reminder)}</Text>
+                    {currentEvent.person_name ? (
+                      <Text style={[styles.modalSummaryText, styles.modalReminderFor]}>
+                        For {currentEvent.person_name}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : currentEvent.summary && (
                   <View style={styles.modalSummaryContainer}>
                     <Text style={styles.modalSummaryLabel}>Summary:</Text>
                     <Text style={styles.modalSummaryText}>{currentEvent.summary}</Text>
                   </View>
                 )}
 
+                {currentEvent.person_id && currentEvent.session_id ? (
+                  <TouchableOpacity
+                    style={styles.viewRequestButton}
+                    onPress={() => openPrayerRequest(currentEvent)}
+                    disabled={isOpeningRequest}
+                    accessibilityRole="button"
+                    accessibilityLabel="View prayer request"
+                    accessibilityState={{ disabled: isOpeningRequest }}
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color={colors.primary}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                    />
+                    <Text style={styles.viewRequestButtonText}>
+                      {isOpeningRequest ? 'Opening...' : 'View Prayer Request'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+
                 {currentEvent.event_type === 'referenced' && (
                   <TouchableOpacity
                     style={styles.editEventButton}
                     onPress={openEditEventModal}
                     accessibilityRole="button"
-                    accessibilityLabel="Edit referenced event"
+                    accessibilityLabel="Edit event date"
                   >
                     <Ionicons
                       name="create-outline"
@@ -742,7 +829,53 @@ export default function CalendarScreen({ navigation }) {
                       accessibilityElementsHidden
                       importantForAccessibility="no"
                     />
-                    <Text style={styles.editEventButtonText}>Edit Referenced Event</Text>
+                    <Text style={styles.editEventButtonText}>Edit Event</Text>
+                  </TouchableOpacity>
+                )}
+
+                {currentEvent.event_type === 'reminder' ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.editEventButton}
+                      onPress={() => {
+                        const reminder = currentEvent.reminder;
+                        // Close the details sheet first; iOS can get stuck when stacking modals.
+                        closeEventModal();
+                        openEditReminder(reminder);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit reminder"
+                    >
+                      <Ionicons name="create-outline" size={18} color="#fff" />
+                      <Text style={styles.editEventButtonText}>Edit Reminder</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.viewRequestButton}
+                      onPress={() =>
+                        addReminderToGoogleCalendar(currentEvent.reminder).catch(() =>
+                          Alert.alert('Could not open Google Calendar', 'Please try again in a moment.')
+                        )
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Add to Google Calendar"
+                    >
+                      <Ionicons name="logo-google" size={18} color={colors.primary} />
+                      <Text style={styles.viewRequestButtonText}>Add to Google Calendar</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.viewRequestButton}
+                    onPress={() => {
+                      const event = currentEvent;
+                      closeEventModal();
+                      remindForEvent(event);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remind me to pray for ${currentEvent.person_name || 'this request'}`}
+                  >
+                    <Ionicons name="notifications-outline" size={18} color={colors.primary} />
+                    <Text style={styles.viewRequestButtonText}>Remind Me to Pray</Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>
@@ -771,7 +904,7 @@ export default function CalendarScreen({ navigation }) {
           >
             <GlassSurface style={styles.editModalContent} intensity={52} strong>
               <Text style={styles.modalTitle} accessibilityRole="header">
-                Edit Referenced Event
+                Edit Event
               </Text>
               <Text style={styles.editLabel}>Event Date</Text>
               <View style={styles.datePickerRow}>
@@ -933,72 +1066,30 @@ export default function CalendarScreen({ navigation }) {
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      <ReminderEditor
+        visible={!!reminderEditor}
+        reminder={reminderEditor?.reminder || null}
+        defaults={reminderEditor?.defaults || {}}
+        onClose={() => setReminderEditor(null)}
+        onChanged={loadReminders}
+      />
     </SafeAreaView>
   );
 }
 
-function createStyles(colors, isDark) {
-  /** Opaque tile fill — same for all days; events are shown only via dots (no alternate tile color). */
-  const dayTileBg = isDark ? '#2C2C2E' : colors.surfaceMuted;
+function createStyles(colors) {
   return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  navButton: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  viewModeSelector: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: 8,
-    marginHorizontal: 8,
-    marginTop: 6,
-    borderRadius: RADIUS.card,
-  },
-  viewModeButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: RADIUS.button,
-    backgroundColor: colors.surfaceMuted,
-    alignItems: 'center',
-  },
-  viewModeButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  viewModeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  viewModeTextActive: {
-    color: '#fff',
   },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 4,
+    marginBottom: 12,
     backgroundColor: '#FFF4CC',
     borderColor: '#E6D48A',
     borderWidth: 1,
@@ -1012,13 +1103,39 @@ function createStyles(colors, isDark) {
     fontSize: 12,
     fontWeight: '500',
   },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  monthCard: {
+    marginHorizontal: 16,
+    borderRadius: RADIUS.card,
+    paddingHorizontal: 8,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  monthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 8,
+  },
+  navButton: {
+    padding: 6,
+  },
+  monthTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
   weekDaysContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
+    paddingBottom: 6,
   },
   weekDay: {
     flex: 1,
@@ -1030,199 +1147,167 @@ function createStyles(colors, isDark) {
     color: colors.textSecondary,
   },
   calendarContainer: {
-    height: SCREEN_HEIGHT * 0.66,
+    flex: 1,
+  },
+  calendarContent: {
+    paddingBottom: 8,
+  },
+  upcomingSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  upcomingTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 12,
+  },
+  upcomingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: RADIUS.card,
+    marginBottom: 10,
+    paddingVertical: 12,
+    paddingRight: 12,
+    overflow: 'hidden',
+  },
+  upcomingAccent: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginLeft: 8,
+    marginRight: 12,
+  },
+  upcomingText: {
+    flex: 1,
+    marginRight: 8,
+  },
+  upcomingTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  upcomingPerson: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  upcomingDate: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  upcomingSummary: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  upcomingEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: RADIUS.card,
+  },
+  upcomingEmptyText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  upcomingBell: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  sectionHeaderTitle: {
+    marginBottom: 0,
+  },
+  addReminderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  addReminderText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  emptyLink: {
+    marginTop: 8,
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  reminderSchedule: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '600',
+    color: REMINDER_COLOR,
+  },
+  reminderFinished: {
+    opacity: 0.6,
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 8,
   },
   dayCell: {
     width: '14.28%',
-    aspectRatio: 1,
+    height: 46,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: dayTileBg,
-    overflow: 'hidden',
+    justifyContent: 'flex-start',
+    paddingTop: 2,
   },
   dayCellPressed: {
-    opacity: 0.88,
+    opacity: 0.6,
   },
-  todayCell: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-    borderWidth: 2,
+  dayCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todayCircle: {
+    backgroundColor: colors.primary,
   },
   dayText: {
-    fontSize: 14,
+    fontSize: 15,
     color: colors.textPrimary,
-    marginBottom: 2,
   },
   todayText: {
-    fontWeight: 'bold',
-    color: colors.primary,
+    fontWeight: '700',
+    color: '#fff',
   },
   eventsIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginTop: 2,
-    backgroundColor: 'transparent',
+    height: 6,
+    gap: 3,
   },
   eventDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginHorizontal: 1,
-    marginVertical: 1,
-  },
-  moreEventsText: {
-    fontSize: 8,
-    color: colors.textSecondary,
-    marginLeft: 2,
-  },
-  weekContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  weekDayColumn: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  weekDayHeader: {
-    padding: 8,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  todayWeekHeader: {
-    backgroundColor: colors.primarySoft,
-  },
-  weekDayName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  todayWeekDayName: {
-    color: colors.primary,
-  },
-  weekDayNumber: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  todayWeekDayNumber: {
-    color: colors.primary,
-  },
-  weekDayEvents: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.background,
-  },
-  weekEventItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginVertical: 4,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    borderLeftWidth: 3,
-  },
-  weekEventTime: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  weekEventPerson: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  weekEventSummary: {
-    fontSize: 10,
-    color: colors.textSecondary,
-  },
-  noWeekEventsText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  dayContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  dayHeader: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  dayHeaderText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 4,
-  },
-  dayEventCount: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  noEventsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noEventsText: {
-    fontSize: 14,
-    color: '#999',
-  },
-  dayEventItem: {
-    padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: RADIUS.card,
-    borderLeftWidth: 4,
-  },
-  dayEventHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  dayEventTime: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  dayEventTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  dayEventTypeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  dayEventPerson: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 8,
-  },
-  dayEventSummary: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    lineHeight: 20,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   modalOverlay: {
     flex: 1,
@@ -1314,8 +1399,28 @@ function createStyles(colors, isDark) {
     color: colors.textPrimary,
     lineHeight: 24,
   },
-  editEventButton: {
+  viewRequestButton: {
     marginTop: 18,
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+  },
+  viewRequestButtonText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  modalReminderFor: {
+    marginTop: 6,
+    color: colors.textSecondary,
+  },
+  editEventButton: {
+    marginTop: 12,
     backgroundColor: colors.primary,
     borderRadius: 999,
     paddingVertical: 10,

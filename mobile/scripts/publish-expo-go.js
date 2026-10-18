@@ -31,7 +31,9 @@ console.log(`The app will talk to: ${apiBaseUrl}\n`);
 
 const result = spawnSync(
   'eas',
-  ['update', '--channel', CHANNEL, '--message', JSON.stringify(message)],
+  // Newer eas-cli requires --environment (which EAS env vars to load); the backend URL comes
+  // from app.json, so "preview" is just a sensible bucket for tester builds.
+  ['update', '--channel', CHANNEL, '--environment', 'preview', '--message', JSON.stringify(message)],
   {
     cwd: MOBILE_DIR,
     stdio: 'inherit',

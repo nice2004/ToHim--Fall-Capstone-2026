@@ -1,6 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 
 let dbPromise = null;
+let initPromise = null;
+let transactionQueue = Promise.resolve();
 
 async function getDb() {
   if (!dbPromise) {
@@ -9,7 +11,28 @@ async function getDb() {
   return dbPromise;
 }
 
-export async function initLocalDb() {
+// Every helper shares one connection, and withTransactionAsync is not safe to run concurrently
+// on it: a second BEGIN fails and its ROLLBACK ends the first caller's transaction
+// ("cannot rollback - no transaction is active"). Run transactions one at a time instead.
+function runInTransaction(db, work) {
+  const run = transactionQueue.then(() => db.withTransactionAsync(work));
+  transactionQueue = run.catch(() => {});
+  return run;
+}
+
+// Schema setup runs once per app launch (it used to rerun on every call, which could also
+// land inside another caller's open transaction).
+export function initLocalDb() {
+  if (!initPromise) {
+    initPromise = createSchema().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
+  }
+  return initPromise;
+}
+
+async function createSchema() {
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
@@ -53,7 +76,7 @@ export async function cachePersons(persons, includeGroups = false) {
   const db = await getDb();
   const now = new Date().toISOString();
   const includeFlag = includeGroups ? 1 : 0;
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     await db.runAsync(
       'DELETE FROM persons_cache WHERE include_groups = ?',
       [includeFlag]
@@ -142,7 +165,7 @@ export async function cacheCalendarEvents(events) {
   await initLocalDb();
   const db = await getDb();
   const now = new Date().toISOString();
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const event of events || []) {
       await db.runAsync(
         `

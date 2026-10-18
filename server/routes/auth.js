@@ -179,6 +179,33 @@ router.post('/register', async (req, res) => {
 
     // Create user in unverified state
     const user = await userRepo.createUser(username, passwordHash, email.trim(), null, true);
+
+    // Class-testing deployments have no email provider, so testers could never receive a code.
+    // With SKIP_EMAIL_VERIFICATION=true the account is usable immediately (signed in, like
+    // /register/verify-code). Note that password reset still needs email to work.
+    if (process.env.SKIP_EMAIL_VERIFICATION === 'true') {
+      await userRepo.markUserEmailVerified(user.id);
+      const token = jwt.sign(
+        { userId: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      return res.status(201).json({
+        message: 'Account created',
+        verificationRequired: false,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          onboarding_completed: user.onboarding_completed,
+          privacy_consent_given: user.privacy_consent_given === true,
+          name: user.name,
+        },
+        token,
+        needsProfileSetup: !user.name,
+      });
+    }
+
     await createAndSendVerificationCode(user);
 
     res.status(201).json({

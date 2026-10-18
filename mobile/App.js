@@ -33,6 +33,11 @@ import CoachableTabBar from './components/CoachableTabBar';
 import { makeMeasuredTabBarButton } from './components/MeasuredTabBarButton';
 import { FLOATING_TAB_BAR, TAB_BAR_SCENE_INSET } from './tabBarLayout';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import {
+  initReminderNotifications,
+  refreshReminders,
+  clearReminderNotifications,
+} from './services/reminders';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -151,6 +156,15 @@ function AppInner() {
     })();
   }, []);
 
+  // Reschedule this device's prayer-reminder notifications from the server once signed in.
+  useEffect(() => {
+    if (!isAuthenticated || needsProfileSetup) return;
+    initReminderNotifications();
+    refreshReminders().catch((err) => {
+      console.warn('[App] Reminder sync did not complete:', err?.message || err);
+    });
+  }, [isAuthenticated, needsProfileSetup]);
+
   useEffect(() => {
     if (!__DEV__) return undefined;
     return registerDevOnboardingPreview(setDevPreviewOnboarding);
@@ -194,6 +208,9 @@ function AppInner() {
   };
 
   const handleLogout = async () => {
+    await clearReminderNotifications().catch((err) => {
+      console.warn('[App] Could not clear reminder notifications:', err?.message || err);
+    });
     await authAPI.logout();
     setIsAuthenticated(false);
     setNeedsProfileSetup(false);
