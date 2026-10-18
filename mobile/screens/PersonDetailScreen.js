@@ -27,6 +27,7 @@ import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
 import { getRequestNote } from '../utils/prayerText';
+import { JOURNAL_FONT, formatShortDay } from '../utils/journal';
 
 const ANSWERED_COLOR = '#34C759';
 
@@ -417,7 +418,7 @@ export default function PersonDetailScreen({ route, navigation }) {
     );
   }
 
-  const { person, sessions, metadata } = personData;
+  const { person, sessions, metadata, reflections } = personData;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -600,6 +601,38 @@ export default function PersonDetailScreen({ route, navigation }) {
           </View>
         )}
 
+        {reflections && reflections.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { marginBottom: 2 }]}>Reflections</Text>
+            <Text style={styles.reflectionsCaption}>
+              From your prayer journal, in the order you wrote them
+            </Text>
+            {reflections.map((r, i) => {
+              const isLast = i === reflections.length - 1;
+              return (
+                <TouchableOpacity
+                  key={`${r.entry_id}`}
+                  style={styles.timelineRow}
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate('JournalEntry', { entryId: r.entry_id })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reflection from ${formatShortDay(r.entry_date)}`}
+                  accessibilityHint="Opens the full journal entry"
+                >
+                  <View style={styles.timelineRail}>
+                    <View style={styles.timelineDot} />
+                    {!isLast && <View style={styles.timelineLine} />}
+                  </View>
+                  <View style={styles.timelineBody}>
+                    <Text style={styles.timelineDate}>{formatShortDay(r.entry_date)}</Text>
+                    <Text style={styles.timelineExcerpt}>{r.excerpt}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         <View style={styles.section}>
           <View style={styles.summaryHeader}>
             <Text style={styles.sectionTitle}>Character Summary</Text>
@@ -631,7 +664,9 @@ export default function PersonDetailScreen({ route, navigation }) {
           </GlassSurface>
         </View>
 
-        {(!sessions || sessions.length === 0) && (!metadata || metadata.length === 0) && (
+        {(!sessions || sessions.length === 0) &&
+          (!metadata || metadata.length === 0) &&
+          (!reflections || reflections.length === 0) && (
           <View style={styles.emptySection}>
             <Ionicons name="document-outline" size={50} color="#ccc" />
             <Text style={styles.emptyText}>No prayer request recorded yet</Text>
@@ -1166,6 +1201,50 @@ function createStyles(colors) {
   answeredInput: {
     minHeight: 80,
     marginBottom: 16,
+  },
+  reflectionsCaption: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 14,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+  },
+  timelineRail: {
+    width: 18,
+    alignItems: 'center',
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+    marginTop: 4,
+  },
+  timelineLine: {
+    flex: 1,
+    width: 2,
+    backgroundColor: colors.primarySoft,
+    marginTop: 4,
+  },
+  timelineBody: {
+    flex: 1,
+    paddingLeft: 10,
+    paddingBottom: 20,
+  },
+  timelineDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  timelineExcerpt: {
+    fontFamily: JOURNAL_FONT,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.textPrimary,
+    marginTop: 4,
   },
   summaryHeader: {
     flexDirection: 'row',

@@ -779,6 +779,84 @@ export const reminderAPI = {
   },
 };
 
+// Prayer Journal: one general daily reflection, connected to the people it mentions only
+// after the user confirms the suggestions.
+export const journalAPI = {
+  getAll: async ({ limit, offset } = {}) => {
+    try {
+      const response = await api.get('/journal', { params: { limit, offset } });
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error fetching entries:', error);
+      throw error;
+    }
+  },
+
+  getById: async (entryId) => {
+    try {
+      const response = await api.get(`/journal/${entryId}`);
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error fetching entry:', error);
+      throw error;
+    }
+  },
+
+  // { body, entryDate: 'YYYY-MM-DD', prompt? }
+  create: async (entry) => {
+    try {
+      const response = await api.post('/journal', entry);
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error creating entry:', error);
+      throw error;
+    }
+  },
+
+  // Returns { entry, removedConnections } — connections whose words were edited away.
+  update: async (entryId, entry) => {
+    try {
+      const response = await api.put(`/journal/${entryId}`, entry);
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error updating entry:', error);
+      throw error;
+    }
+  },
+
+  delete: async (entryId) => {
+    try {
+      const response = await api.delete(`/journal/${entryId}`);
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error deleting entry:', error);
+      throw error;
+    }
+  },
+
+  // { sentences, suggestions: [{ personId, personName, excerpt, sentenceIndices, alreadyLinked, alternatives }], people }
+  suggestConnections: async (entryId) => {
+    try {
+      const response = await api.post(`/journal/${entryId}/suggestions`);
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error suggesting connections:', error);
+      throw error;
+    }
+  },
+
+  // links: [{ personId, excerpt }] — replaces every connection on the entry
+  saveConnections: async (entryId, links) => {
+    try {
+      const response = await api.put(`/journal/${entryId}/links`, { links });
+      return response.data;
+    } catch (error) {
+      console.error('[Journal] Error saving connections:', error);
+      throw error;
+    }
+  },
+};
+
 export const transcribeAPI = {
   transcribe: async (audioUri) => {
     try {

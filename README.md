@@ -52,6 +52,18 @@ ahead.
   reaches the mobile app. Requires `BIBLE_API_KEY`/`BIBLE_API_BIBLE_ID` to be
   configured; without them, search returns a clear "not configured" message
   instead of failing silently.
+- **Prayer Journal**: one general daily reflection, written or spoken, opened
+  from the Prayer Journal card on Home (`JournalScreen`,
+  `JournalComposeScreen`). Optional prompts help you start; there are no
+  streaks or counts. After saving, ToHim suggests which existing people the
+  reflection mentions (`JournalConnectScreen`). You confirm, remove, reassign,
+  or narrow each one before anything is linked. The AI only picks sentence
+  numbers (`server/services/journalConnections.js`), so every excerpt is your
+  exact words, and the full reflection always stays whole in the journal.
+  Confirmed passages appear as a timeline under **Reflections** on each
+  person's profile. Editing a reflection drops any connection whose words were
+  edited away; deleting a reflection or a person removes its links. Stored in
+  `journal_entries` and `journal_entry_people` and served by `/api/journal`.
 
 ## Planned, not yet implemented
 
@@ -211,7 +223,10 @@ npm test
 
 They cover the prayer-request pipeline: extracting people from a description
 (`server/tests/aiService.extraction.test.js`) and creating/matching people and
-storing notes through `POST /api/sessions` (`server/tests/sessions.pipeline.test.js`).
+storing notes through `POST /api/sessions` (`server/tests/sessions.pipeline.test.js`),
+reminder validation (`server/tests/reminders.validation.test.js`), and the Prayer
+Journal: verbatim excerpts, suggested connections, edits, deletes, and privacy
+between accounts (`server/tests/journal.test.js`).
 OpenAI, Postgres, Pinecone, and auth are replaced with in-memory fakes
 (`server/tests/helpers/mocks.js`), so tests need no `.env`, network, or API key.
 

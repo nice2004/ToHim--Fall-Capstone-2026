@@ -45,6 +45,7 @@ const calendarRoutes = require('./routes/calendar');
 const metricsRoutes = require('./routes/metrics');
 const bibleRoutes = require('./routes/bible');
 const reminderRoutes = require('./routes/reminders');
+const journalRoutes = require('./routes/journal');
 
 // Root API endpoint
 app.get('/api', (req, res) => {
@@ -72,6 +73,15 @@ app.get('/api', (req, res) => {
       queries: {
         ask: 'POST /api/queries'
       },
+      journal: {
+        list: 'GET /api/journal',
+        get: 'GET /api/journal/:id',
+        create: 'POST /api/journal',
+        update: 'PUT /api/journal/:id',
+        delete: 'DELETE /api/journal/:id',
+        suggestConnections: 'POST /api/journal/:id/suggestions',
+        saveConnections: 'PUT /api/journal/:id/links'
+      },
       auth: {
         register: 'POST /api/auth/register',
         login: 'POST /api/auth/login',
@@ -93,6 +103,7 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/bible', bibleRoutes);
 app.use('/api/reminders', reminderRoutes);
+app.use('/api/journal', journalRoutes);
 
 // Log route registration
 console.log('Routes registered:');

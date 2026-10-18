@@ -20,6 +20,7 @@ function stubModule(request, exports) {
 /** Which aiService prompt a chat.completions request came from. */
 function classifyPrompt(params) {
   const prompt = (params.messages || []).map((m) => m.content).join('\n');
+  if (prompt.includes('daily reflection connector')) return 'journal';
   if (prompt.includes('entity-specific segments')) return 'entities';
   if (prompt.includes('extract information about a person')) return 'personInfo';
   // Checked before 'notes': event-summary prompts also include the shared "prayer journal" voice rules.
@@ -80,15 +81,82 @@ function installFakeRepo() {
     sessions: [],
     calendarEvents: [],
     metadata: [],
+    journalEntries: [],
+    journalLinks: [],
     nextPersonId: 1,
     nextSessionId: 1,
+    nextEntryId: 1,
     reset() {
       this.persons = [];
       this.sessions = [];
       this.calendarEvents = [];
       this.metadata = [];
+      this.journalEntries = [];
+      this.journalLinks = [];
       this.nextPersonId = 1;
       this.nextSessionId = 1;
+      this.nextEntryId = 1;
+    },
+
+    async getAllPersons(userId) {
+      return repo.persons.filter((p) => p.user_id === userId);
+    },
+
+    // Prayer Journal (same user scoping as server/postgres.js)
+    journalEntryWithPeople(entry) {
+      const people = repo.journalLinks
+        .filter((l) => l.entry_id === entry.id && l.user_id === entry.user_id)
+        .map((l) => {
+          const person = repo.persons.find((p) => p.id === l.person_id && p.user_id === l.user_id);
+          return person ? { person_id: l.person_id, person_name: person.full_name, excerpt: l.excerpt } : null;
+        })
+        .filter(Boolean);
+      return { ...entry, people };
+    },
+    async listJournalEntries(userId) {
+      return repo.journalEntries
+        .filter((e) => e.user_id === userId)
+        .sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.id - a.id)
+        .map((e) => repo.journalEntryWithPeople(e));
+    },
+    async getJournalEntry(userId, entryId) {
+      const entry = repo.journalEntries.find((e) => e.user_id === userId && e.id === Number(entryId));
+      return entry ? repo.journalEntryWithPeople(entry) : null;
+    },
+    async createJournalEntry(userId, { body, entryDate, prompt }) {
+      const entry = { id: repo.nextEntryId++, user_id: userId, body, entry_date: entryDate, prompt: prompt || null };
+      repo.journalEntries.push(entry);
+      return repo.journalEntryWithPeople(entry);
+    },
+    async updateJournalEntry(userId, entryId, { body, entryDate, prompt }, removePersonIds = []) {
+      const entry = repo.journalEntries.find((e) => e.user_id === userId && e.id === Number(entryId));
+      if (!entry) return null;
+      Object.assign(entry, { body, entry_date: entryDate, prompt: prompt || null });
+      repo.journalLinks = repo.journalLinks.filter(
+        (l) => !(l.entry_id === entry.id && removePersonIds.includes(l.person_id))
+      );
+      return repo.journalEntryWithPeople(entry);
+    },
+    async deleteJournalEntry(userId, entryId) {
+      const before = repo.journalEntries.length;
+      repo.journalEntries = repo.journalEntries.filter((e) => !(e.user_id === userId && e.id === Number(entryId)));
+      if (repo.journalEntries.length === before) return false;
+      repo.journalLinks = repo.journalLinks.filter((l) => l.entry_id !== Number(entryId));
+      return true;
+    },
+    async replaceJournalLinks(userId, entryId, links) {
+      const entry = await repo.getJournalEntry(userId, entryId);
+      if (!entry) throw new Error('Journal entry not found or access denied');
+      for (const link of links) {
+        if (!repo.persons.some((p) => p.id === link.personId && p.user_id === userId)) {
+          throw new Error('Person not found or access denied');
+        }
+      }
+      repo.journalLinks = repo.journalLinks.filter((l) => l.entry_id !== entry.id);
+      for (const link of links) {
+        repo.journalLinks.push({ entry_id: entry.id, user_id: userId, person_id: link.personId, excerpt: link.excerpt });
+      }
+      return repo.getJournalEntry(userId, entryId);
     },
 
     async getUserById(id) {
@@ -181,11 +249,12 @@ function installFakeVectorStore() {
   return store;
 }
 
-/** Skip JWT verification; every request is user 1. */
+/** Skip JWT verification; every request is `userId` unless it sends an `x-test-user` header. */
 function installFakeAuth(userId = 1) {
   stubModule('./middleware/auth', {
     authenticateToken: (req, res, next) => {
-      req.user = { id: userId, username: 'tester', name: 'Tester', privacyConsentGiven: true };
+      const id = req.headers['x-test-user'] ? Number(req.headers['x-test-user']) : userId;
+      req.user = { id, username: 'tester', name: 'Tester', privacyConsentGiven: true };
       next();
     },
   });

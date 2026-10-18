@@ -22,6 +22,10 @@ import SettingsScreen from './screens/SettingsScreen';
 import AccountSettingsScreen from './screens/AccountSettingsScreen';
 import PrivacyScreen from './screens/PrivacyScreen';
 import CalendarScreen from './screens/CalendarScreen';
+import JournalScreen from './screens/JournalScreen';
+import JournalComposeScreen from './screens/JournalComposeScreen';
+import JournalConnectScreen from './screens/JournalConnectScreen';
+import JournalEntryScreen from './screens/JournalEntryScreen';
 import { authAPI } from './services/api';
 import { initLocalDb } from './services/localDb';
 import { runNightlyBackupOnOpenIfNeeded } from './services/syncService';
@@ -59,6 +63,10 @@ function PeopleStack() {
         options={{ title: 'Prayer Request' }}
       />
       <Stack.Screen name="VerseSearch" component={VerseSearchScreen} options={{ title: 'Add a Verse' }} />
+      {/* Reflections open from a person's profile; the journal itself lives under Home. */}
+      <Stack.Screen name="JournalEntry" component={JournalEntryScreen} options={{ title: 'Reflection' }} />
+      <Stack.Screen name="JournalCompose" component={JournalComposeScreen} options={{ title: 'Edit Reflection' }} />
+      <Stack.Screen name="JournalConnect" component={JournalConnectScreen} options={{ title: 'Connections' }} />
     </Stack.Navigator>
   );
 }
@@ -75,6 +83,10 @@ function HomeStack({ onLogout }) {
         {(props) => <HomeScreen {...props} onLogout={onLogout} />}
       </Stack.Screen>
       <Stack.Screen name="Session" component={SessionScreen} options={{ title: 'New Prayer Request' }} />
+      <Stack.Screen name="Journal" component={JournalScreen} options={{ title: 'Prayer Journal' }} />
+      <Stack.Screen name="JournalCompose" component={JournalComposeScreen} options={{ title: 'New Reflection' }} />
+      <Stack.Screen name="JournalConnect" component={JournalConnectScreen} options={{ title: 'Connections' }} />
+      <Stack.Screen name="JournalEntry" component={JournalEntryScreen} options={{ title: 'Reflection' }} />
     </Stack.Navigator>
   );
 }

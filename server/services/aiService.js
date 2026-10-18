@@ -587,6 +587,60 @@ Return strict JSON:
   }
 
   /**
+   * Prayer Journal: decide which sentences of one daily reflection are about which of the
+   * user's existing people. The model only returns person ids and sentence numbers — it never
+   * writes text — so the excerpts shown later are always the user's own words.
+   * @param {{ index: number, text: string }[]} sentences
+   * @param {{ id: number, full_name: string, first_name?: string }[]} people
+   * @returns {Promise<string>} raw JSON content: { "connections": [{ "personId", "sentences": [] }] }
+   */
+  async suggestJournalConnections(sentences, people) {
+    const peopleList = people
+      .map((p) => `- id ${p.id}: ${p.full_name}${p.first_name && p.first_name !== p.full_name ? ` (first name ${p.first_name})` : ''}`)
+      .join('\n');
+    const numbered = sentences.map((s) => `[${s.index}] ${s.text}`).join('\n');
+
+    const prompt = `You are ToHim's daily reflection connector. The user wrote one personal reflection about their day. Your only job is to notice which of the user's existing people it mentions, and which sentences are about each of them.
+
+The user's people (the ONLY people you may return):
+${peopleList}
+
+The reflection, one numbered sentence per line:
+${numbered}
+
+Rules:
+- Only connect a person when the reflection clearly refers to them by name, by an unambiguous short form of their name, or by a pronoun that continues a sentence that named them.
+- A word that is also a name ("God's grace", "joy", "hope") is NOT a mention unless it clearly refers to the person.
+- For each person, list every sentence about them, including follow-up sentences that refer back to them ("I'm thankful because I've been praying for her").
+- Leave out sentences that are only about the user's own day or faith and not about that person.
+- A sentence about two people belongs to both.
+- If a name could be more than one person in the list, choose the single most likely one.
+- If the reflection names someone who is NOT in the list, leave those sentences out entirely. Never attach them to a different person.
+- Never invent people, never return anyone who is not in the list, and never write or rewrite any text.
+
+Return strict JSON: {"connections":[{"personId":<id from the list>,"sentences":[<sentence numbers>]}]}
+Return {"connections":[]} if nobody from the list is mentioned.`;
+
+    const response = await callOpenAIWithTimeout(
+      openai.chat.completions.create({
+        model: OPENAI_CHAT_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You link sentences of a private journal to people the user already knows. Return valid JSON only, using only the given ids and sentence numbers.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0,
+        response_format: { type: 'json_object' },
+      }),
+      30000
+    );
+    return response?.choices?.[0]?.message?.content || '';
+  }
+
+  /**
    * Normalize dates in metadata items
    * Processes metadata and converts any relative dates to absolute dates
    * Uses each metadata item's created_at date as reference (when it was recorded)
