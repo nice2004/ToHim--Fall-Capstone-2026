@@ -1,5 +1,3 @@
-import { Platform } from 'react-native';
-
 /**
  * Gentle, optional starting points. Never required, never tracked — a reflection can start
  * from any of these or from nothing at all.
@@ -95,6 +93,3 @@ export function excerptFromSentences(sentences, indices) {
   runs.push(run);
   return runs.map((r) => r.map((i) => sentences[i]).join(' ')).join(EXCERPT_GAP);
 }
-
-/** The typeface for the user's own words: a quiet serif that reads like a journal page. */
-export const JOURNAL_FONT = Platform.select({ ios: 'Georgia', android: 'serif', default: undefined });

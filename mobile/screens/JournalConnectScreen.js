@@ -16,7 +16,7 @@ import { journalAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
-import { JOURNAL_FONT, excerptFromSentences } from '../utils/journal';
+import { excerptFromSentences } from '../utils/journal';
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -466,13 +466,7 @@ function createStyles(colors) {
     altChipText: { fontSize: 13, fontWeight: '600', color: colors.primary },
     excerptBox: { flexDirection: 'row', gap: 10, marginTop: 14 },
     excerptBar: { width: 3, borderRadius: 2, backgroundColor: colors.primary },
-    excerptText: {
-      flex: 1,
-      fontFamily: JOURNAL_FONT,
-      fontSize: 16,
-      lineHeight: 24,
-      color: colors.textPrimary,
-    },
+    excerptText: { flex: 1, fontSize: 15, lineHeight: 22, color: colors.textPrimary },
     needsWords: { fontSize: 14, color: colors.warning, marginTop: 14 },
     chooseRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12, alignSelf: 'flex-start' },
     chooseText: { fontSize: 14, fontWeight: '600', color: colors.primary },

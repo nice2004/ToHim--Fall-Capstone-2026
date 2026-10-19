@@ -15,7 +15,7 @@ import { journalAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
-import { JOURNAL_FONT, formatLongDate } from '../utils/journal';
+import { formatLongDate } from '../utils/journal';
 
 /** One reflection, whole and unedited, with the people it is connected to. */
 export default function JournalEntryScreen({ route, navigation }) {
@@ -144,9 +144,11 @@ export default function JournalEntryScreen({ route, navigation }) {
           </View>
         ) : null}
 
-        <Text style={styles.body} selectable>
-          {entry.body}
-        </Text>
+        <GlassSurface style={styles.bodyCard}>
+          <Text style={styles.body} selectable>
+            {entry.body}
+          </Text>
+        </GlassSurface>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -221,23 +223,18 @@ function createStyles(colors) {
     scrollContent: { padding: 20, paddingBottom: 40 },
     dateText: { fontSize: 22, fontWeight: '700', color: colors.textPrimary },
     editedText: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-    promptBox: { flexDirection: 'row', gap: 10, marginTop: 16 },
+    promptBox: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 16,
+      backgroundColor: colors.primarySoft,
+      borderRadius: 14,
+      padding: 14,
+    },
     promptBar: { width: 3, borderRadius: 2, backgroundColor: colors.primary },
-    promptText: {
-      flex: 1,
-      fontFamily: JOURNAL_FONT,
-      fontStyle: 'italic',
-      fontSize: 16,
-      lineHeight: 23,
-      color: colors.textSecondary,
-    },
-    body: {
-      fontFamily: JOURNAL_FONT,
-      fontSize: 18,
-      lineHeight: 29,
-      color: colors.textPrimary,
-      marginTop: 18,
-    },
+    promptText: { flex: 1, fontSize: 15, lineHeight: 21, fontWeight: '600', color: colors.textPrimary },
+    bodyCard: { padding: 18, borderRadius: RADIUS.card, marginTop: 16 },
+    body: { fontSize: 16, lineHeight: 24, color: colors.textPrimary },
     section: { marginTop: 30 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
@@ -255,13 +252,7 @@ function createStyles(colors) {
     },
     avatarText: { color: 'white', fontWeight: '700' },
     personName: { flex: 1, fontSize: 16, fontWeight: '700', color: colors.textPrimary },
-    excerpt: {
-      fontFamily: JOURNAL_FONT,
-      fontSize: 15,
-      lineHeight: 22,
-      color: colors.textSecondary,
-      marginTop: 10,
-    },
+    excerpt: { fontSize: 14, lineHeight: 20, color: colors.textSecondary, marginTop: 10 },
     deleteButton: {
       flexDirection: 'row',
       alignItems: 'center',

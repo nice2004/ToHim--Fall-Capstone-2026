@@ -27,7 +27,7 @@ import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
 import { getRequestNote } from '../utils/prayerText';
-import { JOURNAL_FONT, formatShortDay } from '../utils/journal';
+import { formatShortDay } from '../utils/journal';
 
 const ANSWERED_COLOR = '#34C759';
 
@@ -1240,9 +1240,8 @@ function createStyles(colors) {
     letterSpacing: 0.5,
   },
   timelineExcerpt: {
-    fontFamily: JOURNAL_FONT,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
     color: colors.textPrimary,
     marginTop: 4,
   },

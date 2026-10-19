@@ -15,12 +15,8 @@ import { journalAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
-import {
-  JOURNAL_FONT,
-  formatEntryDay,
-  monthLabel,
-  promptsForToday,
-} from '../utils/journal';
+import JournalFeatureCard from '../components/JournalFeatureCard';
+import { formatEntryDay, monthLabel, promptsForToday } from '../utils/journal';
 
 const PAGE_SIZE = 50;
 
@@ -114,9 +110,6 @@ export default function JournalScreen({ navigation }) {
         }
       >
         <View style={styles.header}>
-          <View style={styles.headerIcon}>
-            <Ionicons name="book" size={26} color={colors.primary} />
-          </View>
           <Text style={styles.title} accessibilityRole="header">
             Prayer Journal
           </Text>
@@ -125,30 +118,16 @@ export default function JournalScreen({ navigation }) {
           </Text>
         </View>
 
-        <GlassSurface style={styles.composeCard} strong>
-          <Text style={styles.composeLabel}>A thought to begin with, if it helps</Text>
-          <Text style={styles.composePrompt}>{todaysPrompt}</Text>
-          <View style={styles.composeActions}>
-            <TouchableOpacity
-              style={styles.writeButton}
-              onPress={() => navigation.navigate('JournalCompose')}
-              accessibilityRole="button"
-              accessibilityLabel="Write a reflection"
-            >
-              <Ionicons name="create-outline" size={20} color="white" />
-              <Text style={styles.writeButtonText}>Write a reflection</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.speakButton}
-              onPress={() => navigation.navigate('JournalCompose', { startWithVoice: true })}
-              accessibilityRole="button"
-              accessibilityLabel="Speak a reflection"
-              accessibilityHint="Opens the journal and starts recording your voice"
-            >
-              <Ionicons name="mic" size={20} color={colors.primary} />
-            </TouchableOpacity>
-          </View>
-        </GlassSurface>
+        <View style={styles.composeCard}>
+          <JournalFeatureCard
+            title="Write today's reflection"
+            prompt={todaysPrompt}
+            ctaLabel="Start writing"
+            onPress={() => navigation.navigate('JournalCompose')}
+            onSpeak={() => navigation.navigate('JournalCompose', { startWithVoice: true })}
+            accessibilityLabel="Write a reflection"
+          />
+        </View>
 
         {error ? (
           <View style={styles.errorBanner}>
@@ -181,6 +160,7 @@ export default function JournalScreen({ navigation }) {
                   accessibilityLabel={`Reflection from ${formatEntryDay(entry.entry_date)}`}
                 >
                   <GlassSurface style={styles.entryCard}>
+                    <View style={styles.entryAccent} />
                     <View style={styles.entryHeader}>
                       <Text style={styles.entryDay}>{formatEntryDay(entry.entry_date)}</Text>
                       <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
@@ -232,62 +212,10 @@ function createStyles(colors) {
     backNavLabel: { fontSize: 17, fontWeight: '600', color: colors.textPrimary, marginLeft: 2 },
     scrollFlex: { flex: 1 },
     scrollContent: { padding: 20, paddingBottom: 40 },
-    header: { alignItems: 'center', marginBottom: 22 },
-    headerIcon: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: colors.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 10,
-    },
-    title: { fontSize: 28, fontWeight: '700', color: colors.textPrimary },
-    subtitle: {
-      fontSize: 15,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginTop: 6,
-      lineHeight: 21,
-      maxWidth: 320,
-    },
-    composeCard: { padding: 18, borderRadius: RADIUS.card, marginBottom: 24 },
-    composeLabel: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.textSecondary,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-    },
-    composePrompt: {
-      fontFamily: JOURNAL_FONT,
-      fontSize: 19,
-      lineHeight: 27,
-      color: colors.textPrimary,
-      fontStyle: 'italic',
-      marginTop: 8,
-      marginBottom: 16,
-    },
-    composeActions: { flexDirection: 'row', gap: 10 },
-    writeButton: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      backgroundColor: colors.primary,
-      borderRadius: RADIUS.button,
-      paddingVertical: 14,
-    },
-    writeButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
-    speakButton: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.primarySoft,
-    },
+    header: { marginBottom: 20 },
+    title: { fontSize: 32, fontWeight: 'bold', color: colors.textPrimary, letterSpacing: -0.5 },
+    subtitle: { fontSize: 15, color: colors.textSecondary, marginTop: 6, lineHeight: 21 },
+    composeCard: { marginBottom: 28 },
     errorBanner: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -317,17 +245,12 @@ function createStyles(colors) {
       marginBottom: 10,
       marginLeft: 4,
     },
-    entryCard: { padding: 16, borderRadius: RADIUS.card, marginBottom: 12 },
+    entryCard: { padding: 16, paddingLeft: 20, borderRadius: RADIUS.card, marginBottom: 12 },
+    entryAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: colors.primary },
     entryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     entryDay: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-    entryPrompt: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic', marginTop: 4 },
-    entryBody: {
-      fontFamily: JOURNAL_FONT,
-      fontSize: 16,
-      lineHeight: 24,
-      color: colors.textPrimary,
-      marginTop: 8,
-    },
+    entryPrompt: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 4 },
+    entryBody: { fontSize: 15, lineHeight: 22, color: colors.textPrimary, marginTop: 8 },
     peopleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
     personChip: {
       flexDirection: 'row',
