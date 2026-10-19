@@ -17,13 +17,7 @@ import { journalAPI, personAPI } from '../services/api';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useVoiceRecognition } from '../hooks/useVoiceRecognition';
-import {
-  JOURNAL_FONT,
-  formatLongDate,
-  localDateKey,
-  personPrompt,
-  promptsForToday,
-} from '../utils/journal';
+import { formatLongDate, localDateKey, personPrompt, promptsForToday } from '../utils/journal';
 
 const RECORDING_RED = '#E5484D';
 
@@ -342,20 +336,20 @@ function createStyles(colors) {
       paddingVertical: 10,
     },
     promptChipText: { fontSize: 14, lineHeight: 19, color: colors.textPrimary },
-    chosenPrompt: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 18 },
-    chosenPromptBar: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.primary },
-    chosenPromptText: {
-      flex: 1,
-      fontFamily: JOURNAL_FONT,
-      fontSize: 18,
-      lineHeight: 26,
-      fontStyle: 'italic',
-      color: colors.textPrimary,
+    chosenPrompt: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      marginTop: 18,
+      backgroundColor: colors.primarySoft,
+      borderRadius: 14,
+      padding: 14,
     },
+    chosenPromptBar: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.primary },
+    chosenPromptText: { flex: 1, fontSize: 16, lineHeight: 22, fontWeight: '600', color: colors.textPrimary },
     input: {
-      fontFamily: JOURNAL_FONT,
-      fontSize: 18,
-      lineHeight: 28,
+      fontSize: 17,
+      lineHeight: 25,
       color: colors.textPrimary,
       minHeight: 260,
       marginTop: 18,

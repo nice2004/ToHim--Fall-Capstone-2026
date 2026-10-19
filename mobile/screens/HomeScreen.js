@@ -15,7 +15,8 @@ import { authAPI, profileAPI } from '../services/api';
 import { useOnboarding } from '../onboarding/OnboardingContext';
 import GlassSurface from '../components/GlassSurface';
 import { useTheme } from '../context/ThemeContext';
-import { JOURNAL_FONT, promptsForToday } from '../utils/journal';
+import JournalFeatureCard from '../components/JournalFeatureCard';
+import { promptsForToday } from '../utils/journal';
 
 export default function HomeScreen({ navigation, onLogout }) {
   const { colors } = useTheme();
@@ -196,39 +197,16 @@ export default function HomeScreen({ navigation, onLogout }) {
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.coachMeasureWrap}
-            activeOpacity={0.8}
-            onPress={() => runOncePerTap(() => navigation.navigate('Journal'))}
-            accessibilityRole="button"
-            accessibilityLabel="Open your prayer journal"
-            accessibilityHint="Reflect on your day in your own words"
-          >
-            <GlassSurface style={styles.journalCard} strong>
-              <View style={styles.journalIcon}>
-                <Ionicons
-                  name="book"
-                  size={22}
-                  color={colors.primary}
-                  accessibilityElementsHidden
-                  importantForAccessibility="no"
-                />
-              </View>
-              <View style={styles.journalTextWrap}>
-                <Text style={styles.journalTitle}>Prayer Journal</Text>
-                <Text style={styles.journalPrompt} numberOfLines={2}>
-                  {todaysPrompt}
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-            </GlassSurface>
-          </TouchableOpacity>
+          <View style={[styles.coachMeasureWrap, styles.journalCardWrap]}>
+            <JournalFeatureCard
+              title="Reflect on your day"
+              prompt={todaysPrompt}
+              ctaLabel="Open journal"
+              onPress={() => runOncePerTap(() => navigation.navigate('Journal'))}
+              accessibilityLabel="Open your prayer journal"
+              accessibilityHint="Reflect on your day in your own words"
+            />
+          </View>
 
           <GlassSurface style={styles.infoBox}>
             <Ionicons
@@ -366,37 +344,8 @@ function createStyles(colors) {
   buttonIcon: {
     marginRight: 10,
   },
-  journalCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    padding: 16,
-    borderRadius: 22,
-    marginTop: 15,
-  },
-  journalIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  journalTextWrap: {
-    flex: 1,
-  },
-  journalTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  journalPrompt: {
-    fontFamily: JOURNAL_FONT,
-    fontStyle: 'italic',
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.textSecondary,
-    marginTop: 3,
+  journalCardWrap: {
+    marginTop: 24,
   },
   infoBox: {
     flexDirection: 'row',
