@@ -1,6 +1,5 @@
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import { View, Pressable, Platform, StyleSheet } from 'react-native';
-import { Link } from '@react-navigation/native';
 import { useOnboarding } from '../onboarding/OnboardingContext';
 
 const slotCache = new Map();
@@ -19,7 +18,7 @@ export function makeMeasuredTabBarButton(routeName) {
     const wrapRef = useRef(null);
     const { registerTarget } = useOnboarding();
     const {
-      to,
+      href,
       onPress,
       onLongPress,
       testID,
@@ -53,11 +52,11 @@ export function makeMeasuredTabBarButton(routeName) {
     }, [report]);
 
     const inner =
-      Platform.OS === 'web' && to ? (
-        <Link
-          to={to}
-          style={style}
-          onPress={(e) => {
+      Platform.OS === 'web' && href ? (
+        <a
+          href={href}
+          style={StyleSheet.flatten(style)}
+          onClick={(e) => {
             if (
               !(e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) &&
               (e.button == null || e.button === 0)
@@ -68,7 +67,7 @@ export function makeMeasuredTabBarButton(routeName) {
           }}
         >
           {children}
-        </Link>
+        </a>
       ) : (
         <Pressable
           accessibilityRole={accessibilityRole}

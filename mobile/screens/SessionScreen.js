@@ -16,7 +16,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Modal,
-  InteractionManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
@@ -158,8 +157,9 @@ export default function SessionScreen({ route, navigation }) {
       await new Promise((r) => setTimeout(r, 120));
     }
 
+    // InteractionManager was removed in React Native 0.82+; idle callback is the replacement.
     await new Promise((resolve) => {
-      InteractionManager.runAfterInteractions(() => resolve());
+      requestIdleCallback(() => resolve(), { timeout: 500 });
     });
 
     const scheduleDone = (cb) => {
