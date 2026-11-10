@@ -268,7 +268,8 @@ function AppInner() {
 
   return (
     <OnboardingProvider>
-      <NavigationContainer ref={navRef} theme={navigationTheme}>
+      {/* navigationInChildEnabled keeps v6 behavior: navigate() can reach screens in nested stacks. */}
+      <NavigationContainer ref={navRef} theme={navigationTheme} navigationInChildEnabled>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         {isAuthenticated ? (
           needsProfileSetup ? (
@@ -282,9 +283,9 @@ function AppInner() {
           ) : (
             <Tab.Navigator
               tabBar={(props) => <CoachableTabBar {...props} />}
-              // Content stops above the floating tab bar on every tab, so nothing scrolls under it.
-              sceneContainerStyle={{ flex: 1, paddingBottom: TAB_BAR_SCENE_INSET }}
               screenOptions={({ route }) => ({
+                // Content stops above the floating tab bar on every tab, so nothing scrolls under it.
+                sceneStyle: { flex: 1, paddingBottom: TAB_BAR_SCENE_INSET },
                 tabBarIcon: ({ focused, color, size }) => {
                   let iconName;
                   if (route.name === 'Home') {
