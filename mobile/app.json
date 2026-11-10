@@ -12,7 +12,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.nicetetahirwa.Thim",
+      "bundleIdentifier": "com.ellamcmillan.tohim",
       "buildNumber": "2",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "ToHim needs access to your microphone to record voice interactions.",
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.nicetetahirwa.Thim",
+      "package": "com.ellamcmillan.tohim",
       "versionCode": 1,
       "permissions": [
         "RECORD_AUDIO",
@@ -34,10 +34,7 @@
     },
     "web": {},
     "extra": {
-      "apiBaseUrl": "https://tohim-api.onrender.com/api",
-      "eas": {
-        "projectId": "090abdbe-eedc-4399-9e58-7c98894eb329"
-      }
+      "apiBaseUrl": "https://tohim-api.onrender.com/api"
     },
     "plugins": [
       "expo-sqlite",
@@ -53,12 +50,8 @@
       "expo-font",
       "expo-asset"
     ],
-    "owner": "thim-westmont-cs195",
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/090abdbe-eedc-4399-9e58-7c98894eb329"
     }
   }
 }
