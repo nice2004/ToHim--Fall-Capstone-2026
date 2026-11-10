@@ -34,7 +34,10 @@
     },
     "web": {},
     "extra": {
-      "apiBaseUrl": "https://tohim-api.onrender.com/api"
+      "apiBaseUrl": "https://tohim-api.onrender.com/api",
+      "eas": {
+        "projectId": "e497fc3e-76d2-4470-b503-f0c6e8094208"
+      }
     },
     "plugins": [
       "expo-sqlite",
@@ -52,6 +55,7 @@
     ],
     "runtimeVersion": {
       "policy": "appVersion"
-    }
+    },
+    "owner": "ellamcmillan"
   }
 }
