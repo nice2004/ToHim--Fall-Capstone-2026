@@ -7,16 +7,51 @@ import {
   Alert,
   ScrollView,
   Platform,
+  AppState,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaFrame } from 'react-native-safe-area-context';
-import { authAPI, profileAPI } from '../services/api';
+import { authAPI, profileAPI, calendarAPI, personAPI } from '../services/api';
+import { getCachedCalendarEvents } from '../services/localDb';
 import { useOnboarding } from '../onboarding/OnboardingContext';
 import GlassSurface from '../components/GlassSurface';
 import { useTheme } from '../context/ThemeContext';
 import JournalFeatureCard from '../components/JournalFeatureCard';
+import ReminderEditor from '../components/ReminderEditor';
 import { promptsForToday } from '../utils/journal';
+import {
+  getCachedReminders,
+  refreshReminders,
+  occursOn,
+  formatReminderTime,
+  toDateKey,
+} from '../services/reminders';
+import { REMINDER_COLOR, REMINDER_SOFT } from '../theme';
+import { fallbackEventLabel } from '../utils/eventLabel';
+
+/** Rows shown on the card (today first), so it stays small. */
+const ITEM_LIMIT = 3;
+/** A new request's dates are added a few seconds after saving; look again once while on Home. */
+const RECHECK_MS = 20000;
+
+const dayKeyOf = (event) => String(event.event_date || '').split('T')[0];
+
+function initialsOf(name) {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
+
+function todayAndTomorrowKeys() {
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return { today: toDateKey(today), tomorrow: toDateKey(tomorrow) };
+}
 
 export default function HomeScreen({ navigation, onLogout }) {
   const { colors } = useTheme();
@@ -24,7 +59,11 @@ export default function HomeScreen({ navigation, onLogout }) {
   const todaysPrompt = useMemo(() => promptsForToday()[0], []);
   const { registerTarget } = useOnboarding();
   const [userName, setUserName] = useState(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [days, setDays] = useState(todayAndTomorrowKeys);
+  const [events, setEvents] = useState([]);
+  const [reminders, setReminders] = useState([]);
+  // { reminder } to edit; null when the editor is closed
+  const [reminderEditor, setReminderEditor] = useState(null);
   const { height: windowHeight } = useWindowDimensions();
   const frame = useSafeAreaFrame();
   /** Breathing room below Logout (the tab scene already ends above the floating bar) */
@@ -67,20 +106,126 @@ export default function HomeScreen({ navigation, onLogout }) {
     fn();
   };
 
-  useEffect(() => {
-    loadUserProfile();
-  }, []);
-
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       const profile = await profileAPI.getProfile();
       setUserName(profile.user?.name || profile.user?.username || null);
     } catch (error) {
       console.error('[HomeScreen] Error loading profile:', error);
-    } finally {
-      setIsLoadingProfile(false);
     }
-  };
+  }, []);
+
+  /** Prayer requests happening today or tomorrow, plus prayer reminders on those days. */
+  const loadComingUp = useCallback(async () => {
+    const keys = todayAndTomorrowKeys();
+    setDays(keys);
+    let list;
+    try {
+      const response = await calendarAPI.getEvents(keys.today, keys.tomorrow);
+      list = response.events || [];
+    } catch (error) {
+      try {
+        list = await getCachedCalendarEvents(keys.today, keys.tomorrow);
+      } catch {
+        list = [];
+      }
+    }
+    setEvents(list);
+
+    setReminders(await getCachedReminders());
+    try {
+      const { reminders: fresh } = await refreshReminders();
+      setReminders(fresh);
+    } catch (err) {
+      console.warn('[HomeScreen] Could not refresh reminders:', err?.message || err);
+    }
+  }, []);
+
+  // Refresh on every visit (name changed in Account, a request just recorded), and look once
+  // more shortly after, since a new request's dates are filled in after it is saved.
+  useFocusEffect(
+    useCallback(() => {
+      loadUserProfile();
+      loadComingUp();
+      const recheck = setTimeout(loadComingUp, RECHECK_MS);
+      return () => clearTimeout(recheck);
+    }, [loadUserProfile, loadComingUp])
+  );
+
+  // "Today" moves on overnight: refresh when the app comes back to the foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadComingUp();
+    });
+    return () => sub.remove();
+  }, [loadComingUp]);
+
+  const comingUp = useMemo(() => {
+    const build = (dayKey, dayLabel) => {
+      const seen = new Set();
+      const requests = events
+        // 'session' only marks the day a request was recorded; the others are when it happens.
+        .filter((e) => e.event_type !== 'session' && dayKeyOf(e) === dayKey)
+        .filter((e) => {
+          const key = `${e.session_id || e.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((e) => ({
+          key: `event-${e.id}`,
+          kind: 'request',
+          title: e.person_name || 'Prayer request',
+          // Short "what's happening" label ("Exam"); older events get one from their summary.
+          detail: e.label || fallbackEventLabel({ summary: e.summary, personName: e.person_name }) || '',
+          day: dayLabel,
+          event: e,
+        }));
+      const prayerTimes = reminders
+        .filter((r) => occursOn(r, dayKey))
+        .map((r) => ({
+          key: `reminder-${r.id}`,
+          kind: 'reminder',
+          title: r.title,
+          detail: formatReminderTime(r),
+          day: dayLabel,
+          reminder: r,
+        }));
+      return [...requests, ...prayerTimes];
+    };
+    return [...build(days.today, 'Today'), ...build(days.tomorrow, 'Tomorrow')].slice(0, ITEM_LIMIT);
+  }, [events, reminders, days]);
+
+  const initials = initialsOf(userName);
+
+  const openAccount = () =>
+    runOncePerTap(() =>
+      // Account settings live in the Settings tab; keep Settings underneath so Back works.
+      navigation.navigate('Settings', { screen: 'AccountSettings', initial: false })
+    );
+
+  // Same destination as tapping the event on the Calendar.
+  const openPrayerRequest = (event) =>
+    runOncePerTap(async () => {
+      if (!event?.person_id || !event?.session_id) return;
+      try {
+        const data = await personAPI.getById(event.person_id);
+        const session = (data?.sessions || []).find((s) => String(s.id) === String(event.session_id));
+        if (!session) {
+          Alert.alert('Not found', 'This prayer request is no longer available.');
+          return;
+        }
+        navigation.navigate('People', {
+          screen: 'PrayerRequestDetail',
+          initial: false,
+          params: { session, personId: data.person.id, personName: data.person.full_name },
+        });
+      } catch (error) {
+        console.error('[HomeScreen] Error opening prayer request:', error);
+        Alert.alert('Error', 'Could not open this prayer request. Please try again.');
+      }
+    });
+
   const handleLogout = () => {
     runOncePerTap(() => {
       Alert.alert(
@@ -100,6 +245,55 @@ export default function HomeScreen({ navigation, onLogout }) {
       );
     });
   };
+
+  // Shown only when something is happening today or tomorrow, so Home stays quiet otherwise.
+  const renderComingUp = () =>
+    comingUp.length === 0 ? null : (
+      <GlassSurface style={styles.comingUpCard}>
+        {comingUp.map((item, index) => {
+          const isRequest = item.kind === 'request';
+          const isToday = item.day === 'Today';
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.itemRow, index > 0 && styles.itemDivider]}
+              activeOpacity={0.7}
+              onPress={() =>
+                isRequest ? openPrayerRequest(item.event) : setReminderEditor({ reminder: item.reminder })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${item.day}: ${item.title}${item.detail ? `, ${item.detail}` : ''}`}
+              accessibilityHint={isRequest ? 'Opens this prayer request' : 'Opens this prayer reminder'}
+            >
+              {/* The person's initial (or a bell for a prayer time) makes each row feel personal. */}
+              <View
+                style={[styles.itemBadge, { backgroundColor: isRequest ? colors.primarySoft : REMINDER_SOFT }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                {isRequest ? (
+                  <Text style={styles.itemBadgeText}>{initialsOf(item.title).charAt(0) || '•'}</Text>
+                ) : (
+                  <Ionicons name="notifications-outline" size={16} color={REMINDER_COLOR} />
+                )}
+              </View>
+              <View style={styles.itemText}>
+                <Text style={styles.itemTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                {item.detail ? (
+                  <Text style={styles.itemDetail} numberOfLines={1}>
+                    {item.detail}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={[styles.itemDay, isToday && styles.itemDayToday]}>{item.day}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </GlassSurface>
+    );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/*
@@ -129,6 +323,23 @@ export default function HomeScreen({ navigation, onLogout }) {
             : {})}
         >
         <View style={styles.content}>
+          <View style={styles.topBar}>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={openAccount}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel={userName ? `Your account, signed in as ${userName}` : 'Your account'}
+              accessibilityHint="Opens your account settings"
+            >
+              {initials ? (
+                <Text style={styles.avatarText}>{initials}</Text>
+              ) : (
+                <Ionicons name="person" size={18} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.header}>
             <Ionicons
               name="people-circle"
@@ -140,23 +351,16 @@ export default function HomeScreen({ navigation, onLogout }) {
             <Text style={styles.title} accessibilityRole="header">
               ToHim
             </Text>
-            <Text style={styles.subtitle}>Keep track of your prayer request</Text>
-            {userName && (
-              <View style={styles.userBadge} accessibilityLabel={`Signed in as ${userName}`}>
-                <Ionicons
-                  name="person"
-                  size={16}
-                  color={colors.primary}
-                  accessibilityElementsHidden
-                  importantForAccessibility="no"
-                />
-                <Text style={styles.userName}>{userName}</Text>
-              </View>
-            )}
+            <Text style={styles.subtitle}>Keep track of your prayer requests</Text>
           </View>
 
           <View style={styles.buttonContainer}>
-            <View ref={startSessionRef} collapsable={false} style={styles.coachMeasureWrap}>
+            <View
+              ref={startSessionRef}
+              collapsable={false}
+              style={styles.coachMeasureWrap}
+              onLayout={reportCoachTargets}
+            >
               <TouchableOpacity
                 style={styles.primaryButton}
                 onPress={() => runOncePerTap(() => navigation.navigate('Session'))}
@@ -176,7 +380,12 @@ export default function HomeScreen({ navigation, onLogout }) {
               </TouchableOpacity>
             </View>
 
-            <View ref={viewPeopleRef} collapsable={false} style={styles.coachMeasureWrap}>
+            <View
+              ref={viewPeopleRef}
+              collapsable={false}
+              style={styles.coachMeasureWrap}
+              onLayout={reportCoachTargets}
+            >
               <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={() => runOncePerTap(() => navigation.navigate('People'))}
@@ -197,30 +406,18 @@ export default function HomeScreen({ navigation, onLogout }) {
             </View>
           </View>
 
-          <View style={[styles.coachMeasureWrap, styles.journalCardWrap]}>
+          <View style={[styles.coachMeasureWrap, styles.sectionGap]}>{renderComingUp()}</View>
+
+          <View style={[styles.coachMeasureWrap, styles.sectionGap]}>
             <JournalFeatureCard
+              compact
               title="Reflect on your day"
               prompt={todaysPrompt}
-              ctaLabel="Open journal"
               onPress={() => runOncePerTap(() => navigation.navigate('Journal'))}
               accessibilityLabel="Open your prayer journal"
               accessibilityHint="Reflect on your day in your own words"
             />
           </View>
-
-          <GlassSurface style={styles.infoBox}>
-            <Ionicons
-              name="information-circle"
-              size={20}
-                  color={colors.textSecondary}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-            <Text style={styles.infoText}>
-              Start a new prayer request to record what's on your heart or a need for you or for others! ToHim will automatically create profiles for any people you mention and log
-              their information.
-            </Text>
-          </GlassSurface>
 
           <TouchableOpacity
             style={styles.logoutButton}
@@ -232,7 +429,7 @@ export default function HomeScreen({ navigation, onLogout }) {
             <Ionicons
               name="log-out-outline"
               size={20}
-                  color={colors.textSecondary}
+              color={colors.textSecondary}
               accessibilityElementsHidden
               importantForAccessibility="no"
             />
@@ -241,6 +438,13 @@ export default function HomeScreen({ navigation, onLogout }) {
         </View>
         </ScrollView>
       </View>
+
+      <ReminderEditor
+        visible={!!reminderEditor}
+        reminder={reminderEditor?.reminder || null}
+        onClose={() => setReminderEditor(null)}
+        onChanged={loadComingUp}
+      />
     </SafeAreaView>
   );
 }
@@ -264,13 +468,34 @@ function createStyles(colors) {
   content: {
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingTop: 4,
     /** Let content grow from the top so ScrollView can scroll past the tab bar */
     width: '100%',
   },
+  topBar: {
+    width: '100%',
+    maxWidth: 400,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
   header: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 44,
   },
   title: {
     fontSize: 48,
@@ -283,21 +508,6 @@ function createStyles(colors) {
     color: colors.textSecondary,
     marginTop: 10,
     textAlign: 'center',
-  },
-  userBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 12,
-  },
-  userName: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
-    marginLeft: 6,
   },
   coachMeasureWrap: {
     width: '100%',
@@ -344,23 +554,56 @@ function createStyles(colors) {
   buttonIcon: {
     marginRight: 10,
   },
-  journalCardWrap: {
+  sectionGap: {
     marginTop: 24,
   },
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 40,
-    alignItems: 'flex-start',
-    gap: 10,
+  comingUpCard: {
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
   },
-  infoText: {
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  itemDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  itemBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemBadgeText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  itemText: {
     flex: 1,
+  },
+  itemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  itemDetail: {
     fontSize: 14,
     color: colors.textSecondary,
-    lineHeight: 20,
+    marginTop: 1,
+  },
+  itemDay: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  itemDayToday: {
+    color: colors.primary,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -376,4 +619,3 @@ function createStyles(colors) {
   },
 });
 }
-

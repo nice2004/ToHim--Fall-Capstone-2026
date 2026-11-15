@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { calendarAPI, personAPI } from '../services/api';
 import { cacheCalendarEvents, getCachedCalendarEvents } from '../services/localDb';
 import { getLastSyncAt } from '../services/syncService';
-import { RADIUS } from '../theme';
+import { RADIUS, REMINDER_COLOR } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
 import ReminderEditor from '../components/ReminderEditor';
@@ -29,8 +29,6 @@ import {
   formatReminderTime,
   addReminderToGoogleCalendar,
 } from '../services/reminders';
-
-const REMINDER_COLOR = '#AF52DE';
 
 // How far ahead the "Upcoming" list under the month grid looks, and how many items it shows.
 const UPCOMING_WINDOW_DAYS = 60;

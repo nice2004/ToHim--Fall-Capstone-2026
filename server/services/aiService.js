@@ -1,5 +1,7 @@
 const OpenAI = require('openai');
 const { mergeSessionNotesTranscript, stripLightMarkdown } = require('../utils/sessionSourceText');
+const { resolveRelativeDate } = require('../utils/relativeDates');
+const { cleanLabel } = require('../utils/eventLabel');
 
 // Validate API key on startup
 if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
@@ -332,9 +334,29 @@ You MUST provide a normalized date for every weekday name, weekend reference, or
       const normalizedDates = result.normalizedDates || [];
 
       // Post-process with deterministic weekday logic and canonical readable rendering.
-      return normalizedDates.map((item) => {
+      // Everyday phrases ("tomorrow", "Friday", "in 3 days") are resolved deterministically
+      // so they never drift; the model's answer is used for everything else.
+      // Keep one item per input string, in input order (callers pair them with contexts by index):
+      // match the model's item by its original text, else by position, else start empty.
+      const used = new Set();
+      const items = dateStrings.map((d, i) => {
+        const key = String(d).toLowerCase();
+        let match = normalizedDates.find(
+          (item) => !used.has(item) && String(item?.original || '').toLowerCase() === key
+        );
+        if (!match && normalizedDates[i] && !used.has(normalizedDates[i])) match = normalizedDates[i];
+        if (match) {
+          used.add(match);
+          return { ...match, original: match.original || d };
+        }
+        return { original: d, normalized: null };
+      });
+      return items.map((item, i) => {
         const fixed = normalizeExplicitWeekday(item?.original, referenceDateStr);
-        const normalized = fixed ? formatUtcYmd(fixed) : item?.normalized;
+        const everyday =
+          resolveRelativeDate(dateStrings[i], referenceDateStr) ||
+          resolveRelativeDate(item?.original, referenceDateStr);
+        const normalized = fixed ? formatUtcYmd(fixed) : everyday || item?.normalized || null;
         return {
           ...item,
           normalized,
@@ -343,13 +365,16 @@ You MUST provide a normalized date for every weekday name, weekend reference, or
       });
     } catch (error) {
       console.error('Error normalizing dates:', error.message);
-      // Fallback: return original dates with null normalized values
-      return dateStrings.map(d => ({
-        original: d,
-        normalized: null,
-        readable: d,
-        context: null
-      }));
+      // Fallback: still resolve everyday phrases ("tomorrow") so the date isn't lost.
+      return dateStrings.map((d) => {
+        const normalized = resolveRelativeDate(d, referenceDateStr);
+        return {
+          original: d,
+          normalized,
+          readable: normalized ? readableFromYmd(normalized) : d,
+          context: null,
+        };
+      });
     }
   }
 
@@ -527,6 +552,7 @@ Rules:
 - Preserve original wording in segments (do not rewrite heavily).
 - If no clear name is present, use best available reference (e.g., "Dad", "Mom"), but do not invent unrelated names.
 - Facts, dates, segments, and summaries must come ONLY from the transcript—no outside knowledge.
+- Put EVERY date or time reference for an entity in its "dates" list, exactly as written, including relative ones ("today", "tonight", "tomorrow", "Friday", "next Tuesday", "in 3 days", "this weekend") and absolute ones ("March 3"). The context says what happens then (e.g. "Katie's exam"). Do not leave a date only in facts.
 - Write facts and summaries in the first-person voice of the user who recorded the note ("Katie is my roommate", "I'm praying for her exam"). Never write "the user", "the speaker", "the person writing the notes", or "the person".
 
 Transcript:
@@ -1299,6 +1325,41 @@ Output ONLY the rewritten text. No introduction (never "Here is the normalized t
    * @param {string} context - Optional context for referenced dates
    * @param {string} originalDate - Optional original date string for referenced dates
    */
+  /**
+   * A 1-4 word label for what happens on a referenced date ("Exam", "Mom's surgery"), shown next
+   * to the person's name on Home. Returns null when the model gives nothing usable; callers fall
+   * back to utils/eventLabel.js.
+   */
+  async generateEventLabel(personName, context = null, originalDate = null, sourceText = '') {
+    const prompt = `Write a short calendar label for what is happening on a date mentioned in a prayer request about ${personName}.
+
+The date was mentioned as: "${originalDate || ''}"
+What the date refers to: "${context || ''}"
+Prayer request: "${String(sourceText || '').slice(0, 600)}"
+
+Rules:
+- 1 to 4 words, like a calendar entry: "Exam", "Job interview", "Mom's surgery", "Flight home", "Recital".
+- Do NOT include ${personName}'s name (it is shown separately) or any date/day words (today, tomorrow, Friday).
+- Use ONLY what the prayer request says. If it is unclear what is happening, return null.
+
+Return JSON: {"label": "..."} or {"label": null}`;
+    const response = await callOpenAIWithTimeout(
+      openai.chat.completions.create({
+        model: OPENAI_CHAT_MODEL,
+        messages: [
+          { role: 'system', content: 'You write very short calendar labels. Return valid JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+      }),
+      20000
+    );
+    const content = response?.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(content);
+    return cleanLabel(parsed?.label, personName);
+  }
+
   async generateEventSummary(text, personName, eventType, eventDate, context = null, originalDate = null) {
     let dateStr;
     if (typeof eventDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
