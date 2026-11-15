@@ -45,6 +45,10 @@ export const darkColors = {
 /** @deprecated Use useTheme().colors — kept for gradual migration */
 export const COLORS = lightColors;
 
+/** Prayer reminders' accent (Calendar dots, reminder rows on Home). Reads well in light and dark. */
+export const REMINDER_COLOR = '#AF52DE';
+export const REMINDER_SOFT = 'rgba(175, 82, 222, 0.14)';
+
 export const RADIUS = {
   card: 20,
   button: 999,

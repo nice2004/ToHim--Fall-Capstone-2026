@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const userRepo = require('../postgres');
 const aiService = require('../services/aiService');
+const { mergeDetectedDates } = require('../utils/relativeDates');
+const { fallbackEventLabel } = require('../utils/eventLabel');
 const vectorStore = require('../services/vectorStore');
 const { buildSessionChunks } = require('../services/chunkBuilder');
 const { mergeSessionNotesTranscript } = require('../utils/sessionSourceText');
@@ -117,6 +119,10 @@ async function processSessionInBackground({
       }
     }
 
+    // Safety net: the model calls above can miss everyday dates ("exam tomorrow"). Add any the
+    // transcript plainly contains so they still reach the calendar.
+    effectiveExtractedInfo.dates = mergeDetectedDates(effectiveExtractedInfo.dates, transcript);
+
     // Single source of truth for relative dates:
     // compute normalizedDates once, then reuse for both notes rendering + calendar events.
     let normalizedDates = [];
@@ -197,8 +203,10 @@ async function processSessionInBackground({
 
     if (effectiveExtractedInfo && effectiveExtractedInfo.normalizedDates && effectiveExtractedInfo.normalizedDates.length > 0) {
       const normalizedDates = effectiveExtractedInfo.normalizedDates;
+      const eventDays = new Set(); // one event per day per request ("today" + "tonight")
       for (const dateInfo of normalizedDates) {
-        if (!dateInfo.normalized) continue;
+        if (!dateInfo.normalized || eventDays.has(dateInfo.normalized)) continue;
+        eventDays.add(dateInfo.normalized);
         try {
           const eventDate = dateInfo.normalized; // keep date-only (YYYY-MM-DD) to avoid timezone drift
           let summary = null;
@@ -223,13 +231,30 @@ async function processSessionInBackground({
             }
           }
 
+          // Short "what's happening" label for Home's Today/Tomorrow card ("Exam").
+          let label = null;
+          try {
+            label = await aiService.generateEventLabel(
+              person.full_name,
+              dateInfo.context,
+              dateInfo.original,
+              transcript
+            );
+          } catch (labelError) {
+            console.warn('[Sessions] Failed to generate event label, using fallback:', labelError.message);
+          }
+          if (!label) {
+            label = fallbackEventLabel({ context: dateInfo.context, summary, personName: person.full_name });
+          }
+
           await userRepo.createCalendarEvent(
             userId,
             person.id,
             session.id,
             'referenced',
             eventDate,
-            summary
+            summary,
+            label
           );
         } catch (calendarError) {
           console.warn('[Sessions] Failed to create referenced date calendar event:', calendarError.message);

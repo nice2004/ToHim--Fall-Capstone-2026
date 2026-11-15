@@ -208,6 +208,103 @@ test('stores the AI-generated note on the prayer request after background proces
   assert.equal(repo.calendarEvents[0].summary, 'Prayer request for Katie about exam stress.');
 });
 
+// The user is in California at 8:30 PM on Saturday, Nov 14 (already Nov 15 in UTC).
+const californiaEvening = {
+  clientLocalNow: '2026-11-15T04:30:00.000Z',
+  clientTimeZone: 'America/Los_Angeles',
+};
+const examTomorrow = 'Katie has an exam tomorrow. Please pray that she feels calm and prepared.';
+
+test('"exam tomorrow" lands on tomorrow\'s date even when every AI date step misses it', async () => {
+  // The entity extraction keeps the exam only as a fact, the fallback extraction fails,
+  // and date normalization fails too.
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: examTomorrow,
+    facts: ['Katie has an exam tomorrow'],
+    dates: [],
+  });
+  openai.responses.personInfo = new Error('OpenAI is down');
+  openai.responses.dates = new Error('OpenAI is down');
+
+  await postSession({ transcript: examTomorrow, ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  const referenced = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.equal(referenced.length, 1);
+  assert.equal(referenced[0].eventDate, '2026-11-15', 'tomorrow in the user\'s time zone');
+});
+
+test('a wrong AI date for "tomorrow" is corrected', async () => {
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: examTomorrow,
+    dates: [{ dateString: 'tomorrow', context: "Katie's exam" }],
+  });
+  // Model resolves against UTC (Nov 15) instead of the user's day (Nov 14).
+  openai.responses.dates = JSON.stringify({
+    normalizedDates: [{ original: 'tomorrow', normalized: '2026-11-16', context: "Katie's exam" }],
+  });
+
+  await postSession({ transcript: examTomorrow, ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  const referenced = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.deepEqual(referenced.map((e) => e.eventDate), ['2026-11-15']);
+});
+
+test('saves a short label for the upcoming event', async () => {
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: examTomorrow,
+    dates: [{ dateString: 'tomorrow', context: "Katie's exam" }],
+  });
+  openai.responses.eventLabel = JSON.stringify({ label: 'Exam' });
+
+  await postSession({ transcript: examTomorrow, ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  const referenced = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.equal(referenced[0].label, 'Exam');
+  assert.equal(
+    repo.calendarEvents.find((e) => e.eventType === 'session').label,
+    null,
+    'the hidden "recorded on" event needs no label'
+  );
+});
+
+test('the label falls back to the date context when the AI label fails', async () => {
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: examTomorrow,
+    dates: [{ dateString: 'tomorrow', context: "Katie's exam" }],
+  });
+  openai.responses.eventLabel = new Error('OpenAI is down');
+
+  await postSession({ transcript: examTomorrow, ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  const referenced = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.equal(referenced[0].label, 'Exam');
+});
+
+test('the AI\'s answer is kept for dates the safety net does not handle', async () => {
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: 'Katie graduates on March 3.',
+    dates: [{ dateString: 'March 3', context: "Katie's graduation" }],
+  });
+  openai.responses.dates = JSON.stringify({
+    normalizedDates: [{ original: 'March 3', normalized: '2027-03-03', context: "Katie's graduation" }],
+  });
+
+  await postSession({ transcript: 'Katie graduates on March 3.', ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  const referenced = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.deepEqual(referenced.map((e) => e.eventDate), ['2027-03-03']);
+});
+
 test('falls back to the original words as the note when note generation fails', async () => {
   openai.responses.entities = entityReply(katie);
   openai.responses.notes = new Error('OpenAI is down');

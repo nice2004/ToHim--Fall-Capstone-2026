@@ -12,6 +12,7 @@ import {
   Modal,
   Keyboard,
   TouchableWithoutFeedback,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -26,10 +27,13 @@ import { getLastSyncAt } from '../services/syncService';
 import { RADIUS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import GlassSurface from '../components/GlassSurface';
+import ActionSheet from '../components/ActionSheet';
 import { getRequestNote } from '../utils/prayerText';
 import { formatShortDay } from '../utils/journal';
 
 const ANSWERED_COLOR = '#34C759';
+// Scripture and answered-prayer words are set in a serif to feel quoted, not typed.
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: undefined });
 
 // SQLite stores CURRENT_TIMESTAMP as "YYYY-MM-DD HH:MM:SS" in UTC with no timezone marker.
 // Without explicit 'Z', JS (V8 / Hermes) parses space-separated strings as LOCAL time,
@@ -56,19 +60,55 @@ function toPlainPreview(text) {
     .trim();
 }
 
-function formatShortDate(str) {
-  return parseUtcTimestamp(str).toLocaleDateString(undefined, {
+/** "Nov 12" this year, "Nov 12, 2025" otherwise. */
+function formatCardDate(str) {
+  const d = parseUtcTimestamp(str);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
   });
 }
 
-function formatNoteDate(str) {
+/** "7 October" this year, "7 October 2025" otherwise. */
+function formatLongDay(str) {
   const d = parseUtcTimestamp(str);
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${formatShortDate(str)} · ${time}`;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
 }
+
+/** One flowing paragraph for a short card preview. */
+function toOneParagraph(text) {
+  return toPlainPreview(text).replace(/\s*\n+\s*/g, ' ').trim();
+}
+
+/**
+ * A preview of about `max` characters that never stops mid-thought: it ends at the last whole
+ * sentence that fits, or — when the first sentence alone is longer — at a word, followed by "…".
+ * @returns {{ text: string, truncated: boolean }}
+ */
+function previewOf(text, max) {
+  const t = String(text || '').trim();
+  if (t.length <= max) return { text: t, truncated: false };
+  const head = t.slice(0, max + 1);
+  let lastEnd = -1;
+  for (const m of head.matchAll(/[.!?]["”’)]*(?=\s)/g)) lastEnd = m.index + m[0].length;
+  if (lastEnd >= max * 0.45) return { text: t.slice(0, lastEnd), truncated: true };
+  const space = head.lastIndexOf(' ', max);
+  const cut = t.slice(0, space > 0 ? space : max).replace(/[\s,;:—–-]+$/, '');
+  return { text: `${cut}…`, truncated: true };
+}
+
+// Preview lengths (characters) that keep a card to a few lines.
+const PREVIEW = { request: 150, answer: 140, asked: 90, verse: 110, reflection: 160, about: 220 };
+
+const byNewest = (field) => (a, b) =>
+  parseUtcTimestamp(b[field] || b.created_at) - parseUtcTimestamp(a[field] || a.created_at);
 
 export default function PersonDetailScreen({ route, navigation }) {
   const { colors } = useTheme();
@@ -97,6 +137,11 @@ export default function PersonDetailScreen({ route, navigation }) {
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [offlineNotice, setOfflineNotice] = useState(null);
 
+  const [personMenuOpen, setPersonMenuOpen] = useState(false);
+  const [sessionMenu, setSessionMenu] = useState(null); // the request whose "⋯" menu is open
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [expandedIds, setExpandedIds] = useState(() => new Set()); // cards opened with "Read more"
+
   // Runs on initial mount and again whenever this screen regains focus
   // (e.g. returning from the prayer request detail screen), so
   // answered-status and verse changes made there show up here.
@@ -106,7 +151,7 @@ export default function PersonDetailScreen({ route, navigation }) {
     }, [personId])
   );
 
-  const peopleBackBar = (
+  const renderBackBar = (withMenu = false) => (
     <View style={styles.topNavBar}>
       <TouchableOpacity
         style={styles.backNavButton}
@@ -118,8 +163,26 @@ export default function PersonDetailScreen({ route, navigation }) {
         <Ionicons name="chevron-back" size={24} color={colors.primary} />
         <Text style={styles.backNavLabel}>People</Text>
       </TouchableOpacity>
+      {withMenu ? (
+        // Editing the name and deleting the person are rare, so they live here instead of on the page.
+        <TouchableOpacity
+          style={styles.navMenuButton}
+          onPress={() => setPersonMenuOpen(true)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          disabled={isDeleting}
+          accessibilityRole="button"
+          accessibilityLabel={`More options for ${personData?.person?.full_name || 'this person'}`}
+        >
+          {isDeleting ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Ionicons name="ellipsis-horizontal-circle-outline" size={26} color={colors.primary} />
+          )}
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
+  const peopleBackBar = renderBackBar(false);
 
   const loadPersonData = async () => {
     try {
@@ -418,34 +481,189 @@ export default function PersonDetailScreen({ route, navigation }) {
     );
   }
 
-  const { person, sessions, metadata, reflections } = personData;
+  const { person, sessions, reflections } = personData;
+  const allSessions = sessions || [];
+  // Active prayers first (newest first), then answered ones (most recently answered first).
+  // Derived on every render, so marking answered/unanswered moves a request right away.
+  const activeSessions = allSessions.filter((s) => !s.answered).sort(byNewest('created_at'));
+  const answeredSessions = allSessions.filter((s) => !!s.answered).sort(byNewest('answered_at'));
+  const firstName = person.first_name || person.full_name.split(' ')[0];
+
+  const openDetail = (session) =>
+    navigation.navigate('PrayerRequestDetail', {
+      session,
+      personId: person.id,
+      personName: person.full_name,
+    });
+
+  const toggleExpanded = (id) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /**
+   * Verses quoted under the prayer, so scripture reads as part of it rather than a link.
+   * Collapsed: the first verse, previewed. Expanded: every verse in full.
+   */
+  const verseBlock = (verses, answered, expanded) => {
+    if (!verses.length) return { node: null, truncated: false };
+    const shown = expanded ? verses : verses.slice(0, 1);
+    let truncated = !expanded && verses.length > 1;
+    const node = shown.map((verse, i) => {
+      const full = (verse.verse_text || '').trim();
+      const preview = expanded ? { text: full, truncated: false } : previewOf(full, PREVIEW.verse);
+      truncated = truncated || preview.truncated;
+      const more = !expanded && verses.length > 1 ? `  ·  +${verses.length - 1} more` : '';
+      return (
+        <View key={verse.id || i} style={[styles.verse, answered && styles.verseAnswered]}>
+          {preview.text ? <Text style={styles.verseText}>{preview.text}</Text> : null}
+          <Text style={[styles.verseReference, answered && { color: ANSWERED_COLOR }]}>
+            {verse.reference}
+            {more}
+          </Text>
+        </View>
+      );
+    });
+    return { node, truncated };
+  };
+
+  const renderReadMore = (session, expanded, answered) => (
+    <TouchableOpacity
+      style={styles.readMore}
+      onPress={() => toggleExpanded(session.id)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel={expanded ? 'Show less' : 'Read more'}
+    >
+      <Text style={[styles.readMoreText, answered && { color: ANSWERED_COLOR }]}>
+        {expanded ? 'Show less' : 'Read more'}
+      </Text>
+      <Ionicons
+        name={expanded ? 'chevron-up' : 'chevron-down'}
+        size={14}
+        color={answered ? ANSWERED_COLOR : colors.primary}
+      />
+    </TouchableOpacity>
+  );
+
+  const renderMoreButton = (session) => (
+    <TouchableOpacity
+      style={styles.requestMore}
+      onPress={() => setSessionMenu(session)}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityRole="button"
+      accessibilityLabel="More actions for this prayer request"
+    >
+      <Ionicons name="ellipsis-horizontal" size={18} color={colors.textSecondary} />
+    </TouchableOpacity>
+  );
+
+  // Active prayer: what you're asking for, with its verse beneath. Quiet and readable.
+  // Previews end on a whole sentence; "Read more" opens the rest in place, and tapping the card
+  // still opens the full request.
+  const renderActiveCard = (session) => {
+    const expanded = expandedIds.has(session.id);
+    const full = toOneParagraph(getRequestNote(session));
+    const body = expanded ? { text: full, truncated: false } : previewOf(full, PREVIEW.request);
+    const verses = verseBlock(session.verses || [], false, expanded);
+    const canExpand = expanded || body.truncated || verses.truncated;
+    const since = formatCardDate(session.created_at);
+    return (
+      <GlassSurface key={session.id} style={styles.requestCard}>
+        {/* ToHim blue edge and a soft glow (the Prayer Journal card's touch) give active prayers
+            their own identity, the way green marks answered ones. */}
+        <View style={styles.activeAccent} pointerEvents="none" />
+        <View style={styles.activeGlow} pointerEvents="none" />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => openDetail(session)}
+          accessibilityRole="button"
+          accessibilityLabel={`Prayer request, ${since}. ${full}`}
+          accessibilityHint="Opens the full prayer request"
+        >
+          <View style={styles.requestHeader}>
+            <View style={styles.datePill}>
+              <Text style={styles.datePillText}>{since}</Text>
+            </View>
+          </View>
+          <Text style={styles.requestBody}>{body.text || 'No details recorded.'}</Text>
+          {verses.node}
+        </TouchableOpacity>
+        {canExpand ? renderReadMore(session, expanded, false) : null}
+        {renderMoreButton(session)}
+      </GlassSurface>
+    );
+  };
+
+  // Answered prayer: the answer is the headline and the original request becomes "what you
+  // asked" — a moment to look back on, not a status change.
+  const renderAnsweredCard = (session) => {
+    const expanded = expandedIds.has(session.id);
+    const request = toOneParagraph(getRequestNote(session));
+    const answer = (session.answered_note || '').trim();
+    const answeredOn = formatCardDate(session.answered_at || session.created_at);
+    const pick = (text, max) => (expanded ? { text, truncated: false } : previewOf(text, max));
+    const answerPart = answer ? pick(answer, PREVIEW.answer) : null;
+    const requestPart = pick(request, answer ? PREVIEW.asked : PREVIEW.request);
+    const verses = verseBlock(session.verses || [], true, expanded);
+    const canExpand = expanded || answerPart?.truncated || requestPart.truncated || verses.truncated;
+    return (
+      <View key={session.id} style={styles.answeredCard}>
+        <View style={styles.answeredGlow} pointerEvents="none" />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => openDetail(session)}
+          accessibilityRole="button"
+          accessibilityLabel={`Answered ${answeredOn}. ${answer || request}`}
+          accessibilityHint="Opens the full prayer request"
+        >
+          <View style={styles.requestHeader}>
+            <Ionicons name="sparkles" size={14} color={ANSWERED_COLOR} style={styles.answeredIcon} />
+            <Text style={[styles.requestEyebrow, { color: ANSWERED_COLOR }]}>Answered {answeredOn}</Text>
+          </View>
+          {answerPart ? (
+            <>
+              <Text style={styles.answerText}>“{answerPart.text}”</Text>
+              <Text style={styles.askedText}>
+                <Text style={styles.askedLabel}>You asked  </Text>
+                {requestPart.text || 'No details recorded.'}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.requestBody}>{requestPart.text || 'No details recorded.'}</Text>
+          )}
+          {verses.node}
+        </TouchableOpacity>
+        {canExpand ? renderReadMore(session, expanded, true) : null}
+        {renderMoreButton(session)}
+      </View>
+    );
+  };
+
+  const renderRequestCard = (session) =>
+    session.answered ? renderAnsweredCard(session) : renderActiveCard(session);
+
+  const sessionMenuOptions = sessionMenu
+    ? [
+        { label: 'View full request', icon: 'document-text-outline', onPress: () => openDetail(sessionMenu) },
+        sessionMenu.answered
+          ? { label: 'Mark as unanswered', icon: 'arrow-undo-outline', onPress: () => confirmMarkUnanswered(sessionMenu) }
+          : { label: 'Mark as answered', icon: 'checkmark-circle-outline', onPress: () => openAnsweredModal(sessionMenu) },
+        { label: 'Add a verse', icon: 'book-outline', onPress: () => openAddVerse(sessionMenu) },
+        { label: 'Edit', icon: 'create-outline', onPress: () => openEditSessionModal(sessionMenu) },
+      ]
+    : [];
 
   return (
     <SafeAreaView style={styles.container}>
-      {peopleBackBar}
+      {renderBackBar(true)}
       <ScrollView
         style={styles.scrollFlex}
         contentContainerStyle={styles.scrollContent}
       >
-        <GlassSurface style={styles.header}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {person.first_name.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.nameContainer}>
-            <Text style={styles.name}>{person.full_name}</Text>
-            <TouchableOpacity 
-              style={styles.editButton}
-              onPress={handleEdit}
-            >
-              <Ionicons name="pencil" size={18} color={colors.primary} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.date}>
-            Added {formatShortDate(person.created_at)}
-          </Text>
-        </GlassSurface>
         {offlineNotice && (
           <View style={styles.offlineBanner}>
             <Ionicons name="cloud-offline-outline" size={16} color="#665200" />
@@ -453,245 +671,149 @@ export default function PersonDetailScreen({ route, navigation }) {
           </View>
         )}
 
+        {/* Who you're praying for: a small initial beside their name. The prayers come right after. */}
+        <View style={styles.profile}>
+          <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Text style={styles.avatarText}>{person.first_name.charAt(0).toUpperCase()}</Text>
+          </View>
+          <View style={styles.profileText}>
+            <Text style={styles.name} accessibilityRole="header" numberOfLines={2}>
+              {person.full_name}
+            </Text>
+            <Text style={styles.since}>{formatLongDay(person.created_at)}</Text>
+          </View>
+        </View>
+
         <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('NewSession', { 
-            personId: person.id, 
-            personName: person.full_name 
+          style={styles.recordButton}
+          onPress={() => navigation.navigate('NewSession', {
+            personId: person.id,
+            personName: person.full_name,
           })}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`Record a new prayer request for ${person.full_name}`}
         >
-          <Ionicons name="mic" size={22} color="white" />
-          <Text style={styles.actionButtonText}>Record New Prayer Request</Text>
+          <Ionicons name="mic" size={20} color="white" />
+          <Text style={styles.recordButtonText}>Record a prayer request</Text>
         </TouchableOpacity>
 
-        {sessions && sessions.length > 0 && (
+        {allSessions.length === 0 ? (
+          <Text style={styles.emptyText}>
+            What you're praying for {firstName} will appear here.
+          </Text>
+        ) : null}
+
+        {activeSessions.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Prayer Requests</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header">
+              Praying for
+            </Text>
+            {activeSessions.map(renderRequestCard)}
+          </View>
+        )}
+
+        {answeredSessions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="checkmark-circle" size={18} color={ANSWERED_COLOR} />
+              <Text style={[styles.sectionTitle, styles.sectionTitleInRow]} accessibilityRole="header">
+                Answered prayers
+              </Text>
             </View>
-            {sessions.map((session) => {
-              const isAnswered = !!session.answered;
-              const accentColor = isAnswered ? ANSWERED_COLOR : colors.primary;
-              const preview = toPlainPreview(getRequestNote(session));
-              const verses = session.verses || [];
-              const openDetail = () =>
-                navigation.navigate('PrayerRequestDetail', {
-                  session,
-                  personId: person.id,
-                  personName: person.full_name,
-                });
-
-              return (
-                <GlassSurface key={session.id} style={styles.noteCard}>
-                  <View style={[styles.noteAccent, { backgroundColor: accentColor }]} />
-                  <View style={styles.noteInner}>
-                    <View style={styles.noteHeader}>
-                      <View style={styles.statusLabel}>
-                        <Ionicons
-                          name={isAnswered ? 'checkmark-circle' : 'ellipse'}
-                          size={isAnswered ? 15 : 9}
-                          color={accentColor}
-                        />
-                        <Text style={[styles.statusLabelText, { color: accentColor }]}>
-                          {isAnswered ? 'ANSWERED' : 'ACTIVE'}
-                        </Text>
-                      </View>
-                      <Text style={styles.noteDate} numberOfLines={1}>
-                        {formatNoteDate(session.created_at)}
-                      </Text>
-                      <TouchableOpacity
-                        style={styles.noteIconButton}
-                        onPress={() => openEditSessionModal(session)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit prayer request"
-                      >
-                        <Ionicons name="create-outline" size={19} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-
-                    <TouchableOpacity activeOpacity={0.6} onPress={openDetail}>
-                      {preview ? (
-                        <Text style={styles.noteBody} numberOfLines={6}>
-                          {preview}
-                        </Text>
-                      ) : (
-                        <Text style={styles.noteEmpty}>No details recorded.</Text>
-                      )}
-                      <View style={styles.readMoreRow}>
-                        <Text style={styles.readMoreText}>View full request</Text>
-                        <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-                      </View>
-                    </TouchableOpacity>
-
-                    {isAnswered && session.answered_note ? (
-                      <View style={styles.answeredNoteBox}>
-                        <Text style={styles.answeredNoteLabel}>How it was answered</Text>
-                        <Text style={styles.answeredNoteText} numberOfLines={3}>
-                          {session.answered_note}
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {verses.length > 0 && (
-                      <View style={styles.verseChips}>
-                        {verses.map((verse) => (
-                          <View key={verse.id} style={styles.verseChip}>
-                            <Ionicons name="book" size={12} color={colors.primary} />
-                            <Text style={styles.verseChipText}>{verse.reference}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    <View style={styles.noteDivider} />
-
-                    <View style={styles.noteActions}>
-                      <TouchableOpacity
-                        style={[
-                          styles.noteActionButton,
-                          isAnswered ? styles.unanswerActionButton : styles.answerActionButton,
-                        ]}
-                        onPress={() =>
-                          isAnswered ? confirmMarkUnanswered(session) : openAnsweredModal(session)
-                        }
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel={isAnswered ? 'Mark as unanswered' : 'Mark as answered'}
-                      >
-                        <Ionicons
-                          name={isAnswered ? 'arrow-undo' : 'checkmark-circle'}
-                          size={18}
-                          color={isAnswered ? colors.textSecondary : 'white'}
-                        />
-                        <Text
-                          style={[
-                            styles.noteActionText,
-                            { color: isAnswered ? colors.textSecondary : 'white' },
-                          ]}
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.8}
-                        >
-                          {isAnswered ? 'Undo Answered' : 'Mark Answered'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.noteActionButton, styles.verseActionButton]}
-                        onPress={() => openAddVerse(session)}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add a Bible verse"
-                      >
-                        <Ionicons name="book" size={17} color={colors.primary} />
-                        <Text
-                          style={[styles.noteActionText, { color: colors.primary }]}
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.8}
-                        >
-                          Add Verse
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </GlassSurface>
-              );
-            })}
+            {answeredSessions.map(renderRequestCard)}
           </View>
         )}
 
         {reflections && reflections.length > 0 && (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { marginBottom: 2 }]}>Reflections</Text>
-            <Text style={styles.reflectionsCaption}>
-              From your prayer journal, in the order you wrote them
+            <Text style={styles.sectionTitle} accessibilityRole="header">
+              Reflections
             </Text>
-            {reflections.map((r, i) => {
-              const isLast = i === reflections.length - 1;
+            {/* Each reflection is a small page from the journal: its blue spine, the day, and
+                the user's own words set like handwriting-in-print. */}
+            {reflections.map((r) => (
+              <TouchableOpacity
+                key={`${r.entry_id}`}
+                style={styles.reflectionCard}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('JournalEntry', { entryId: r.entry_id })}
+                accessibilityRole="button"
+                accessibilityLabel={`Reflection from ${formatShortDay(r.entry_date)}. ${r.excerpt}`}
+                accessibilityHint="Opens the full journal entry"
+              >
+                <View style={styles.reflectionSpine} />
+                <View style={styles.reflectionHeader}>
+                  <Ionicons name="book-outline" size={13} color={colors.primary} />
+                  <Text style={styles.reflectionDate}>{formatShortDay(r.entry_date)}</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={15}
+                    color={colors.textSecondary}
+                    style={styles.reflectionChevron}
+                  />
+                </View>
+                <Text style={styles.reflectionText}>{previewOf(r.excerpt, PREVIEW.reflection).text}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* What you've learned about them, built from their prayer requests. Last, so the
+            prayers stay the focus. */}
+        {characterSummary ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle} accessibilityRole="header">
+              About {firstName}
+            </Text>
+            {(() => {
+              const about = summaryExpanded
+                ? { text: characterSummary.trim(), truncated: false }
+                : previewOf(characterSummary, PREVIEW.about);
               return (
-                <TouchableOpacity
-                  key={`${r.entry_id}`}
-                  style={styles.timelineRow}
-                  activeOpacity={0.7}
-                  onPress={() => navigation.navigate('JournalEntry', { entryId: r.entry_id })}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Reflection from ${formatShortDay(r.entry_date)}`}
-                  accessibilityHint="Opens the full journal entry"
-                >
-                  <View style={styles.timelineRail}>
-                    <View style={styles.timelineDot} />
-                    {!isLast && <View style={styles.timelineLine} />}
-                  </View>
-                  <View style={styles.timelineBody}>
-                    <Text style={styles.timelineDate}>{formatShortDay(r.entry_date)}</Text>
-                    <Text style={styles.timelineExcerpt}>{r.excerpt}</Text>
-                  </View>
-                </TouchableOpacity>
+                <>
+                  <Text style={styles.summary}>{about.text}</Text>
+                  {about.truncated || summaryExpanded ? (
+                    <TouchableOpacity
+                      style={styles.readMore}
+                      onPress={() => setSummaryExpanded((v) => !v)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={summaryExpanded ? 'Show less' : `Read more about ${firstName}`}
+                    >
+                      <Text style={styles.readMoreText}>{summaryExpanded ? 'Show less' : 'Read more'}</Text>
+                      <Ionicons
+                        name={summaryExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={colors.primary}
+                      />
+                    </TouchableOpacity>
+                  ) : null}
+                </>
               );
-            })}
+            })()}
           </View>
-        )}
-
-        <View style={styles.section}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.sectionTitle}>Character Summary</Text>
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={loadCharacterSummary}
-              disabled={isSummaryLoading}
-            >
-              <Ionicons
-                name="refresh"
-                size={18}
-                color={isSummaryLoading ? '#ccc' : colors.primary}
-              />
-            </TouchableOpacity>
-          </View>
-          <GlassSurface style={styles.summaryCard}>
-            {isSummaryLoading ? (
-              <View style={styles.summaryLoadingRow}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.summaryLoadingText}>Generating summary…</Text>
-              </View>
-            ) : characterSummary ? (
-              <Text style={styles.summaryText}>{characterSummary}</Text>
-            ) : (
-              <Text style={styles.summaryEmptyText}>
-                No summary available yet. Record some prayer requests to get started.
-              </Text>
-            )}
-          </GlassSurface>
-        </View>
-
-        {(!sessions || sessions.length === 0) &&
-          (!metadata || metadata.length === 0) &&
-          (!reflections || reflections.length === 0) && (
-          <View style={styles.emptySection}>
-            <Ionicons name="document-outline" size={50} color="#ccc" />
-            <Text style={styles.emptyText}>No prayer request recorded yet</Text>
-            <Text style={styles.emptySubtext}>
-              Tap "Record New Prayer Request" to add information about this person
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={confirmDelete}
-          disabled={isDeleting}
-        >
-          {isDeleting ? (
-            <ActivityIndicator color="#FF3B30" />
-          ) : (
-            <>
-              <Ionicons name="trash" size={24} color="#FF3B30" />
-              <Text style={styles.deleteButtonText}>Delete Person</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        ) : isSummaryLoading && allSessions.length > 0 ? (
+          <ActivityIndicator size="small" color={colors.textSecondary} style={styles.summaryLoading} />
+        ) : null}
       </ScrollView>
-      
+
+      <ActionSheet
+        visible={personMenuOpen}
+        onClose={() => setPersonMenuOpen(false)}
+        title={person.full_name}
+        options={[
+          { label: 'Edit name', icon: 'pencil-outline', onPress: handleEdit },
+          { label: 'Delete person', icon: 'trash-outline', destructive: true, onPress: confirmDelete },
+        ]}
+      />
+
+      <ActionSheet
+        visible={!!sessionMenu}
+        onClose={() => setSessionMenu(null)}
+        options={sessionMenuOptions}
+      />
+
       {/* Edit Name Modal */}
       <Modal
         visible={isEditing}
@@ -944,6 +1066,9 @@ function createStyles(colors) {
     backgroundColor: colors.background,
   },
   topNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 4,
     paddingBottom: 8,
@@ -977,13 +1102,9 @@ function createStyles(colors) {
     color: '#666',
   },
   scrollContent: {
-    padding: 20,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 25,
-    padding: 25,
-    borderRadius: RADIUS.card,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 40,
   },
   offlineBanner: {
     flexDirection: 'row',
@@ -1003,196 +1124,270 @@ function createStyles(colors) {
     fontSize: 12,
     fontWeight: '500',
   },
+  navMenuButton: {
+    padding: 2,
+  },
+  // Profile: no card, just the person — avatar beside their name, like a contact.
+  profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
   },
   avatarText: {
     color: 'white',
-    fontSize: 36,
+    fontSize: 19,
     fontWeight: 'bold',
+  },
+  profileText: {
+    flex: 1,
   },
   name: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 5,
   },
-  date: {
+  since: {
     fontSize: 14,
     color: colors.textSecondary,
+    marginTop: 1,
   },
-  actionButton: {
+  summary: {
+    fontSize: 15,
+    lineHeight: 23,
+    color: colors.textPrimary,
+  },
+  summaryLoading: {
+    marginTop: 24,
+    alignSelf: 'flex-start',
+  },
+  recordButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     backgroundColor: colors.primary,
-    padding: 15,
+    paddingVertical: 14,
     borderRadius: RADIUS.button,
-    marginBottom: 28,
+    marginTop: 18,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  actionButtonText: {
+  recordButtonText: {
     color: 'white',
     fontSize: 17,
     fontWeight: '600',
-    marginLeft: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 24,
+    paddingHorizontal: 20,
   },
   section: {
-    marginBottom: 25,
+    marginTop: 26,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 15,
+    marginBottom: 10,
   },
-  sectionHeaderRow: {
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 14,
+    gap: 6,
+    marginBottom: 10,
   },
-  // Each prayer request reads like a separate note: colored edge on the left,
-  // a small header line, the text, then its actions along the bottom.
-  noteCard: {
-    flexDirection: 'row',
-    borderRadius: 16,
-    marginBottom: 16,
+  sectionTitleInRow: {
+    marginBottom: 0,
   },
-  noteAccent: {
+  // Prayer cards. Active: glass card with a blue edge and glow. Answered: a soft green-lit card
+  // where the answer leads.
+  requestCard: {
+    borderRadius: 20,
+    marginBottom: 10,
+    paddingVertical: 16,
+    paddingLeft: 22,
+    paddingRight: 18,
+  },
+  activeAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
     width: 5,
+    backgroundColor: colors.primary,
   },
-  noteInner: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+  activeGlow: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    top: -80,
+    right: -50,
+    backgroundColor: colors.primarySoft,
   },
-  noteHeader: {
+  requestHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+    paddingRight: 32, // room for the ⋯ button
   },
-  statusLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+  datePill: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  statusLabelText: {
+  datePillText: {
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: colors.primary,
   },
-  noteDate: {
-    flex: 1,
+  requestEyebrow: {
     fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
     color: colors.textSecondary,
-    marginLeft: 10,
   },
-  noteIconButton: {
-    padding: 4,
-    marginLeft: 6,
+  requestBody: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.textPrimary,
   },
-  noteBody: {
+  // Scripture sits inside the card as a quotation, set in a serif so it reads differently from notes.
+  verse: {
+    marginTop: 14,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.primary,
+  },
+  verseAnswered: {
+    borderLeftColor: ANSWERED_COLOR,
+  },
+  verseText: {
+    fontFamily: SERIF,
+    fontStyle: 'italic',
     fontSize: 15,
     lineHeight: 22,
     color: colors.textPrimary,
+    opacity: 0.85,
   },
-  noteEmpty: {
+  verseReference: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: colors.primary,
+    marginTop: 4,
+  },
+  requestMore: {
+    position: 'absolute',
+    top: 10,
+    right: 8,
+    padding: 6,
+  },
+  answeredCard: {
+    borderRadius: 20,
+    marginBottom: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 199, 89, 0.28)',
+    overflow: 'hidden',
+  },
+  answeredGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+  },
+  answeredIcon: {
+    marginRight: 6,
+  },
+  answerText: {
+    fontFamily: SERIF,
+    fontSize: 19,
+    lineHeight: 27,
+    color: colors.textPrimary,
+  },
+  askedText: {
     fontSize: 14,
-    fontStyle: 'italic',
+    lineHeight: 20,
+    color: colors.textSecondary,
+    marginTop: 10,
+  },
+  askedLabel: {
+    fontWeight: '700',
     color: colors.textSecondary,
   },
-  readMoreRow: {
+  readMore: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    alignSelf: 'flex-start',
+    gap: 3,
+    marginTop: 10,
   },
   readMoreText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: colors.primary,
-    marginRight: 2,
-  },
-  answeredNoteBox: {
-    marginTop: 12,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(52, 199, 89, 0.12)',
-  },
-  answeredNoteLabel: {
-    fontSize: 11,
     fontWeight: '700',
-    color: ANSWERED_COLOR,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 3,
+    color: colors.primary,
   },
-  answeredNoteText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.textPrimary,
+  // Reflections: small journal pages — soft blue paper, the journal's solid blue spine,
+  // and the user's words in a serif so they read as their own writing.
+  reflectionCard: {
+    borderRadius: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    paddingLeft: 20,
+    paddingRight: 16,
+    backgroundColor: colors.primarySoft,
+    overflow: 'hidden',
   },
-  verseChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 12,
+  reflectionSpine: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: colors.primary,
   },
-  verseChip: {
+  reflectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.chip,
-    backgroundColor: colors.primarySoft,
+    gap: 6,
+    marginBottom: 6,
   },
-  verseChipText: {
+  reflectionDate: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
     color: colors.primary,
   },
-  noteDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginTop: 14,
-    marginBottom: 12,
+  reflectionChevron: {
+    marginLeft: 'auto',
   },
-  noteActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  noteActionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: RADIUS.button,
-  },
-  answerActionButton: {
-    backgroundColor: ANSWERED_COLOR,
-  },
-  unanswerActionButton: {
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  verseActionButton: {
-    backgroundColor: colors.primarySoft,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  noteActionText: {
-    fontSize: 14,
-    fontWeight: '700',
+  reflectionText: {
+    fontFamily: SERIF,
+    fontSize: 15,
+    lineHeight: 23,
+    color: colors.textPrimary,
   },
   answeredModalIcon: {
     alignItems: 'center',
@@ -1202,108 +1397,11 @@ function createStyles(colors) {
     minHeight: 80,
     marginBottom: 16,
   },
-  reflectionsCaption: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: 14,
-  },
-  timelineRow: {
-    flexDirection: 'row',
-  },
-  timelineRail: {
-    width: 18,
-    alignItems: 'center',
-  },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-    marginTop: 4,
-  },
-  timelineLine: {
-    flex: 1,
-    width: 2,
-    backgroundColor: colors.primarySoft,
-    marginTop: 4,
-  },
-  timelineBody: {
-    flex: 1,
-    paddingLeft: 10,
-    paddingBottom: 20,
-  },
-  timelineDate: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  timelineExcerpt: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  refreshButton: {
-    padding: 4,
-  },
-  summaryCard: {
-    padding: 18,
-    borderRadius: RADIUS.card,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary,
-  },
-  summaryText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 24,
-  },
-  summaryLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  summaryLoadingText: {
-    fontSize: 14,
-    color: '#999',
-  },
-  summaryEmptyText: {
-    fontSize: 14,
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  emptySection: {
-    alignItems: 'center',
-    padding: 40,
-  },
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#666',
     marginTop: 15,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 10,
-    textAlign: 'center',
-  },
-  nameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 5,
-  },
-  editButton: {
-    marginLeft: 10,
-    padding: 5,
   },
   modalOverlay: {
     flex: 1,
@@ -1445,23 +1543,6 @@ function createStyles(colors) {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 25,
-    borderWidth: 2,
-    borderColor: '#FF3B30',
-  },
-  deleteButtonText: {
-    color: '#FF3B30',
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 10,
   },
 });
 }

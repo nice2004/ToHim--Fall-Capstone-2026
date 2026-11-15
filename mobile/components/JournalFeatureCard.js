@@ -16,9 +16,53 @@ export default function JournalFeatureCard({
   onSpeak,
   accessibilityLabel,
   accessibilityHint,
+  compact = false,
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  // Compact: one tappable row (icon, today's prompt, arrow) so Home has room for other things
+  // while the journal keeps its signature blue panel.
+  if (compact) {
+    return (
+      <View style={[styles.shadowWrap, styles.shadowWrapCompact]}>
+        <TouchableOpacity
+          style={[styles.card, styles.cardCompact]}
+          activeOpacity={0.85}
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel || title}
+          accessibilityHint={accessibilityHint}
+        >
+          <View style={styles.glowCompact} pointerEvents="none" />
+          <View style={[styles.iconBadge, styles.iconBadgeCompact]}>
+            <Ionicons
+              name="book"
+              size={18}
+              color="white"
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          </View>
+          <View style={styles.headerText}>
+            <Text style={styles.eyebrow}>PRAYER JOURNAL</Text>
+            <Text style={styles.promptCompact} numberOfLines={2}>
+              {prompt || title}
+            </Text>
+          </View>
+          <View style={styles.arrowCompact}>
+            <Ionicons
+              name="arrow-forward"
+              size={16}
+              color={colors.primary}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.shadowWrap}>
@@ -164,6 +208,46 @@ function createStyles(colors) {
       paddingHorizontal: 18,
     },
     ctaText: { fontSize: 16, fontWeight: '600', color: colors.primary },
+    shadowWrapCompact: {
+      borderRadius: 20,
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.22,
+      shadowRadius: 10,
+      elevation: 4,
+    },
+    cardCompact: {
+      borderRadius: 20,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    glowCompact: {
+      position: 'absolute',
+      width: 120,
+      height: 120,
+      borderRadius: 60,
+      top: -60,
+      right: -30,
+      backgroundColor: 'rgba(255,255,255,0.10)',
+    },
+    iconBadgeCompact: { width: 38, height: 38, borderRadius: 19 },
+    promptCompact: {
+      fontSize: 15,
+      lineHeight: 20,
+      fontWeight: '600',
+      color: 'white',
+      marginTop: 2,
+    },
+    arrowCompact: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: 'white',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     speakButton: {
       width: 44,
       height: 44,
