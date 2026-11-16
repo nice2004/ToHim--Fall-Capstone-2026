@@ -273,6 +273,32 @@ test('saves a short label for the upcoming event', async () => {
   );
 });
 
+test('the date is saved before the slow AI steps, then refined', async () => {
+  openai.responses.entities = entityReply({
+    ...katie,
+    segment: examTomorrow,
+    dates: [{ dateString: 'tomorrow', context: "Katie's exam" }],
+  });
+  // When note generation starts, the exam should already be on the calendar.
+  let savedBeforeNotes = null;
+  openai.responses.notes = () => {
+    savedBeforeNotes = repo.calendarEvents.filter((e) => e.eventType === 'referenced').map((e) => ({ ...e }));
+    return 'Praying Katie feels calm for her exam.';
+  };
+  openai.responses.eventSummary = 'Katie has her exam; praying she feels calm.';
+  openai.responses.eventLabel = JSON.stringify({ label: 'Exam' });
+
+  await postSession({ transcript: examTomorrow, ...californiaEvening });
+  await waitForBackgroundProcessing();
+
+  assert.equal(savedBeforeNotes.length, 1, 'saved before the notes call');
+  assert.equal(savedBeforeNotes[0].eventDate, '2026-11-15');
+  assert.equal(savedBeforeNotes[0].label, 'Exam', 'starts with a rule-based label');
+  const [event] = repo.calendarEvents.filter((e) => e.eventType === 'referenced');
+  assert.equal(event.summary, 'Katie has her exam; praying she feels calm.', 'AI summary replaces the placeholder');
+  assert.equal(openai.callsOf('dates').length, 0, '"tomorrow" is resolved without a model call');
+});
+
 test('the label falls back to the date context when the AI label fails', async () => {
   openai.responses.entities = entityReply({
     ...katie,

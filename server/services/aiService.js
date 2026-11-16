@@ -280,6 +280,17 @@ class AIService {
     const referenceDateStr = getReferenceDateParts(referenceDate, referenceTimeZone); // YYYY-MM-DD in client timezone
     const referenceDateReadable = getReadableReferenceDate(referenceDate, referenceTimeZone);
 
+    // Fast path: when every date is an everyday phrase ("tomorrow", "Friday", "in 3 days"),
+    // resolve them directly. Same answers the model path would end with, seconds sooner.
+    const everyday = dateStrings.map((d) => resolveRelativeDate(d, referenceDateStr));
+    if (everyday.every(Boolean)) {
+      return dateStrings.map((d, i) => ({
+        original: d,
+        normalized: everyday[i],
+        readable: readableFromYmd(everyday[i]),
+      }));
+    }
+
     const prompt = `You are a date normalization assistant. Convert relative dates to absolute dates.
 
 Today's date: ${referenceDateReadable} (${referenceDateStr})

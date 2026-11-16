@@ -13,6 +13,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -105,7 +106,7 @@ function previewOf(text, max) {
 }
 
 // Preview lengths (characters) that keep a card to a few lines.
-const PREVIEW = { request: 150, answer: 140, asked: 90, verse: 110, reflection: 160, about: 220 };
+const PREVIEW = { request: 150, answer: 140, verse: 110, reflection: 160, about: 220 };
 
 const byNewest = (field) => (a, b) =>
   parseUtcTimestamp(b[field] || b.created_at) - parseUtcTimestamp(a[field] || a.created_at);
@@ -598,48 +599,46 @@ export default function PersonDetailScreen({ route, navigation }) {
     );
   };
 
-  // Answered prayer: the answer is the headline and the original request becomes "what you
-  // asked" — a moment to look back on, not a status change.
+  // Answered prayer: the same card as an active one, in green, with how it was answered
+  // tucked in beneath the request.
   const renderAnsweredCard = (session) => {
     const expanded = expandedIds.has(session.id);
     const request = toOneParagraph(getRequestNote(session));
     const answer = (session.answered_note || '').trim();
     const answeredOn = formatCardDate(session.answered_at || session.created_at);
     const pick = (text, max) => (expanded ? { text, truncated: false } : previewOf(text, max));
+    const body = pick(request, PREVIEW.request);
     const answerPart = answer ? pick(answer, PREVIEW.answer) : null;
-    const requestPart = pick(request, answer ? PREVIEW.asked : PREVIEW.request);
     const verses = verseBlock(session.verses || [], true, expanded);
-    const canExpand = expanded || answerPart?.truncated || requestPart.truncated || verses.truncated;
+    const canExpand = expanded || body.truncated || answerPart?.truncated || verses.truncated;
     return (
-      <View key={session.id} style={styles.answeredCard}>
-        <View style={styles.answeredGlow} pointerEvents="none" />
+      <GlassSurface key={session.id} style={styles.requestCard}>
+        <View style={[styles.activeAccent, styles.answeredAccent]} pointerEvents="none" />
+        <View style={[styles.activeGlow, styles.answeredGlow]} pointerEvents="none" />
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => openDetail(session)}
           accessibilityRole="button"
-          accessibilityLabel={`Answered ${answeredOn}. ${answer || request}`}
+          accessibilityLabel={`Answered ${answeredOn}. ${request}${answer ? `. How it was answered: ${answer}` : ''}`}
           accessibilityHint="Opens the full prayer request"
         >
           <View style={styles.requestHeader}>
-            <Ionicons name="sparkles" size={14} color={ANSWERED_COLOR} style={styles.answeredIcon} />
-            <Text style={[styles.requestEyebrow, { color: ANSWERED_COLOR }]}>Answered {answeredOn}</Text>
+            <View style={[styles.datePill, styles.answeredPill]}>
+              <Ionicons name="sparkles" size={11} color={ANSWERED_COLOR} />
+              <Text style={[styles.datePillText, { color: ANSWERED_COLOR }]}>Answered {answeredOn}</Text>
+            </View>
           </View>
+          <Text style={styles.requestBody}>{body.text || 'No details recorded.'}</Text>
           {answerPart ? (
-            <>
-              <Text style={styles.answerText}>“{answerPart.text}”</Text>
-              <Text style={styles.askedText}>
-                <Text style={styles.askedLabel}>You asked  </Text>
-                {requestPart.text || 'No details recorded.'}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.requestBody}>{requestPart.text || 'No details recorded.'}</Text>
-          )}
+            <View style={styles.answerNote}>
+              <Text style={styles.answerNoteText}>“{answerPart.text}”</Text>
+            </View>
+          ) : null}
           {verses.node}
         </TouchableOpacity>
         {canExpand ? renderReadMore(session, expanded, true) : null}
         {renderMoreButton(session)}
-      </View>
+      </GlassSurface>
     );
   };
 
@@ -949,46 +948,16 @@ export default function PersonDetailScreen({ route, navigation }) {
         }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+          {/* Keeps the sheet above the keyboard so Cancel / Save stay reachable while typing. */}
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
             <TouchableWithoutFeedback>
               <GlassSurface style={[styles.modalContent, { maxHeight: '85%' }]} intensity={52} strong>
-                {/* Header row with title and Done button to dismiss keyboard */}
-                <View style={styles.editModalHeader}>
-                  <Text style={styles.modalTitle}>Edit Prayer Request</Text>
-                  <View style={styles.editHeaderActions}>
-                    <TouchableOpacity
-                      onPress={Keyboard.dismiss}
-                      style={styles.keyboardDoneButton}
-                      accessibilityRole="button"
-                      accessibilityLabel="Done"
-                      accessibilityHint="Dismiss the keyboard"
-                      disabled={isSavingSession || isDeletingSession}
-                      accessibilityState={{ disabled: isSavingSession || isDeletingSession }}
-                    >
-                      <Text style={styles.keyboardDoneText}>Done</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSaveSession}
-                      style={[
-                        styles.headerSaveButton,
-                        (isSavingSession || isDeletingSession) && styles.headerSaveButtonDisabled,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Save"
-                      accessibilityHint="Save your edits"
-                      disabled={isSavingSession || isDeletingSession}
-                      accessibilityState={{ disabled: isSavingSession || isDeletingSession }}
-                    >
-                      {isSavingSession ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <Text style={styles.headerSaveButtonText}>Save</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Text style={[styles.modalTitle, styles.editModalTitle]}>Edit Prayer Request</Text>
                 {editingSession && (
-                  <Text style={styles.modalMessage}>
+                  <Text style={[styles.modalMessage, styles.editModalDate]}>
                     {parseUtcTimestamp(editingSession.created_at).toLocaleString()}
                   </Text>
                 )}
@@ -996,6 +965,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                   style={styles.editSessionScroll}
                   contentContainerStyle={styles.editSessionScrollContent}
                   keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="interactive"
                   showsVerticalScrollIndicator
                 >
                   <TextInput
@@ -1052,7 +1022,7 @@ export default function PersonDetailScreen({ route, navigation }) {
                 </ScrollView>
               </GlassSurface>
             </TouchableWithoutFeedback>
-          </View>
+          </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
       </Modal>
     </SafeAreaView>
@@ -1259,13 +1229,6 @@ function createStyles(colors) {
     textTransform: 'uppercase',
     color: colors.primary,
   },
-  requestEyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.textSecondary,
-  },
   requestBody: {
     fontSize: 16,
     lineHeight: 24,
@@ -1303,38 +1266,32 @@ function createStyles(colors) {
     right: 8,
     padding: 6,
   },
-  answeredCard: {
-    borderRadius: 20,
-    marginBottom: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: 'rgba(52, 199, 89, 0.28)',
-    overflow: 'hidden',
+  // Answered cards reuse the active card's shape (edge, glow, pill) in green.
+  answeredAccent: {
+    backgroundColor: ANSWERED_COLOR,
   },
   answeredGlow: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+    backgroundColor: 'rgba(52, 199, 89, 0.12)',
   },
-  answeredIcon: {
-    marginRight: 6,
+  answeredPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(52, 199, 89, 0.14)',
   },
-  answerText: {
+  // How it was answered: a soft green note under the request.
+  answerNote: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(52, 199, 89, 0.10)',
+  },
+  answerNoteText: {
     fontFamily: SERIF,
-    fontSize: 19,
-    lineHeight: 27,
+    fontSize: 15,
+    lineHeight: 22,
     color: colors.textPrimary,
-  },
-  askedText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.textSecondary,
-    marginTop: 10,
-  },
-  askedLabel: {
-    fontWeight: '700',
-    color: colors.textSecondary,
   },
   readMore: {
     flexDirection: 'row',
@@ -1422,6 +1379,12 @@ function createStyles(colors) {
     marginBottom: 20,
     textAlign: 'center',
   },
+  editModalTitle: {
+    marginBottom: 4,
+  },
+  editModalDate: {
+    textAlign: 'center',
+  },
   modalMessage: {
     fontSize: 13,
     color: colors.textSecondary,
@@ -1487,43 +1450,6 @@ function createStyles(colors) {
     backgroundColor: colors.surfaceMuted,
     minHeight: 200,
     marginVertical: 12,
-  },
-  editModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  editHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  keyboardDoneButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  keyboardDoneText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  headerSaveButton: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    minWidth: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerSaveButtonDisabled: {
-    opacity: 0.6,
-  },
-  headerSaveButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
   },
   editSessionScroll: {
     flexGrow: 0,

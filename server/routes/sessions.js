@@ -104,7 +104,8 @@ async function processSessionInBackground({
     // Fallback to per-segment extraction so referenced date events still generate.
     const hasDates = Array.isArray(effectiveExtractedInfo.dates) && effectiveExtractedInfo.dates.length > 0;
     const hasFacts = Array.isArray(effectiveExtractedInfo.facts) && effectiveExtractedInfo.facts.length > 0;
-    if (!hasDates || !hasFacts) {
+    // Only wait here when dates are missing; a facts-only fallback runs after the dates are saved.
+    if (!hasDates) {
       try {
         const fallbackInfo = await aiService.extractPersonInfo(transcript);
         effectiveExtractedInfo = {
@@ -143,6 +144,40 @@ async function processSessionInBackground({
       });
     }
     effectiveExtractedInfo.normalizedDates = normalizedDates;
+
+    // Save the dates first, so "Katie's exam tomorrow" reaches Home and the Calendar within
+    // seconds. They start with a rule-based label and the date's context as the summary; the
+    // AI summary and label replace those at the end of processing.
+    const referencedEvents = [];
+    const eventDays = new Set(); // one event per day per request ("today" + "tonight")
+    for (const dateInfo of normalizedDates) {
+      if (!dateInfo.normalized || eventDays.has(dateInfo.normalized)) continue;
+      eventDays.add(dateInfo.normalized);
+      try {
+        const event = await userRepo.createCalendarEvent(
+          userId,
+          person.id,
+          sessionId,
+          'referenced',
+          dateInfo.normalized, // date-only (YYYY-MM-DD) to avoid timezone drift
+          dateInfo.context || `Event on ${dateInfo.readable || dateInfo.normalized}`,
+          fallbackEventLabel({ context: dateInfo.context, summary: transcript, personName: person.full_name })
+        );
+        referencedEvents.push({ event, dateInfo });
+      } catch (calendarError) {
+        console.warn('[Sessions] Failed to create referenced date calendar event:', calendarError.message);
+      }
+    }
+
+    // Facts-only fallback, now that the dates are saved.
+    if (hasDates && !hasFacts) {
+      try {
+        const fallbackInfo = await aiService.extractPersonInfo(transcript);
+        effectiveExtractedInfo.facts = fallbackInfo?.facts || [];
+      } catch (fallbackErr) {
+        console.warn('[Sessions] Fallback fact extraction failed:', fallbackErr.message);
+      }
+    }
 
     // Generate notes, then apply the SAME normalized dates used for calendar.
     let notes;
@@ -201,66 +236,46 @@ async function processSessionInBackground({
       console.warn('[Sessions] Failed to create session calendar event:', calendarError.message);
     }
 
-    if (effectiveExtractedInfo && effectiveExtractedInfo.normalizedDates && effectiveExtractedInfo.normalizedDates.length > 0) {
-      const normalizedDates = effectiveExtractedInfo.normalizedDates;
-      const eventDays = new Set(); // one event per day per request ("today" + "tonight")
-      for (const dateInfo of normalizedDates) {
-        if (!dateInfo.normalized || eventDays.has(dateInfo.normalized)) continue;
-        eventDays.add(dateInfo.normalized);
-        try {
-          const eventDate = dateInfo.normalized; // keep date-only (YYYY-MM-DD) to avoid timezone drift
-          let summary = null;
-          try {
-            const summaryText = session.notes && session.notes.trim() ? session.notes : transcript;
-            if (summaryText && summaryText.trim()) {
-              summary = await aiService.generateEventSummary(
-                summaryText,
-                person.full_name,
-                'referenced',
-                eventDate,
-                dateInfo.context,
-                dateInfo.original
-              );
-            }
-          } catch (summaryError) {
-            console.warn('[Sessions] Failed to generate AI summary for referenced date, using fallback:', summaryError.message);
-            if (dateInfo.context) {
-              summary = dateInfo.context;
-            } else {
-              summary = `Event on ${dateInfo.readable || dateInfo.normalized}`;
-            }
-          }
-
+    // Refine the already-saved date events with an AI summary and short label (in parallel).
+    await Promise.all(
+      referencedEvents.map(async ({ event, dateInfo }) => {
+        if (!event?.id) return;
+        const summaryText = session.notes && session.notes.trim() ? session.notes : transcript;
+        const [summary, label] = await Promise.all([
+          summaryText && summaryText.trim()
+            ? aiService
+                .generateEventSummary(
+                  summaryText,
+                  person.full_name,
+                  'referenced',
+                  dateInfo.normalized,
+                  dateInfo.context,
+                  dateInfo.original
+                )
+                .catch((summaryError) => {
+                  console.warn('[Sessions] AI summary for referenced date failed; keeping fallback:', summaryError.message);
+                  return null;
+                })
+            : null,
           // Short "what's happening" label for Home's Today/Tomorrow card ("Exam").
-          let label = null;
-          try {
-            label = await aiService.generateEventLabel(
-              person.full_name,
-              dateInfo.context,
-              dateInfo.original,
-              transcript
-            );
-          } catch (labelError) {
-            console.warn('[Sessions] Failed to generate event label, using fallback:', labelError.message);
-          }
-          if (!label) {
-            label = fallbackEventLabel({ context: dateInfo.context, summary, personName: person.full_name });
-          }
-
-          await userRepo.createCalendarEvent(
-            userId,
-            person.id,
-            session.id,
-            'referenced',
-            eventDate,
-            summary,
-            label
-          );
-        } catch (calendarError) {
-          console.warn('[Sessions] Failed to create referenced date calendar event:', calendarError.message);
+          aiService
+            .generateEventLabel(person.full_name, dateInfo.context, dateInfo.original, transcript)
+            .catch((labelError) => {
+              console.warn('[Sessions] AI event label failed; keeping fallback:', labelError.message);
+              return null;
+            }),
+        ]);
+        if (!summary && !label) return;
+        try {
+          await userRepo.updateCalendarEventDetails(userId, event.id, {
+            ...(summary ? { summary } : {}),
+            ...(label ? { label } : {}),
+          });
+        } catch (updateError) {
+          console.warn('[Sessions] Failed to refine referenced date event:', updateError.message);
         }
-      }
-    }
+      })
+    );
 
     if (effectiveExtractedInfo && effectiveExtractedInfo.facts && effectiveExtractedInfo.facts.length > 0) {
       for (const fact of effectiveExtractedInfo.facts) {

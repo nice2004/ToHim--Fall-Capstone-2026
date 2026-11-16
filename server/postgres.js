@@ -1021,6 +1021,36 @@ async function updateCalendarEvent(userId, eventId, { eventDate, summary }) {
   return result.rows[0] || null;
 }
 
+/**
+ * Background refinement of a just-created event: swap in the AI summary and/or short label.
+ * (Unlike updateCalendarEvent, which is the user's own edit and clears a stale label.)
+ */
+async function updateCalendarEventDetails(userId, eventId, { summary, label } = {}) {
+  await ensureCalendarLabelSchema();
+  const fields = [];
+  const values = [];
+  if (summary !== undefined) {
+    values.push(summary);
+    fields.push(`summary = $${values.length}`);
+  }
+  if (label !== undefined) {
+    values.push(label);
+    fields.push(`label = $${values.length}`);
+  }
+  if (fields.length === 0) return null;
+  values.push(eventId, userId);
+  const result = await pool.query(
+    `
+    UPDATE calendar_events
+    SET ${fields.join(', ')}
+    WHERE id = $${values.length - 1} AND user_id = $${values.length}
+    RETURNING *
+    `,
+    values
+  );
+  return result.rows[0] || null;
+}
+
 async function setPersonMetadata(userId, personId, key, value) {
   // Ensure person belongs to user
   const person = await getPersonById(userId, personId);
@@ -1640,6 +1670,7 @@ module.exports = {
   deleteSession,
   createCalendarEvent,
   updateCalendarEvent,
+  updateCalendarEventDetails,
   setPersonMetadata,
   updateSession,
   markSessionAnswered,

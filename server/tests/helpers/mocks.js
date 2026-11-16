@@ -225,7 +225,14 @@ function installFakeRepo() {
       return session;
     },
     async createCalendarEvent(userId, personId, sessionId, eventType, eventDate, summary, label = null) {
-      repo.calendarEvents.push({ userId, personId, sessionId, eventType, eventDate, summary, label });
+      const event = { id: repo.calendarEvents.length + 1, userId, personId, sessionId, eventType, eventDate, summary, label };
+      repo.calendarEvents.push(event);
+      return event;
+    },
+    async updateCalendarEventDetails(userId, eventId, fields) {
+      const event = repo.calendarEvents.find((e) => e.id === eventId && e.userId === userId);
+      if (event) Object.assign(event, fields);
+      return event || null;
     },
     async setPersonMetadata(userId, personId, key, value) {
       repo.metadata.push({ userId, personId, key, value });

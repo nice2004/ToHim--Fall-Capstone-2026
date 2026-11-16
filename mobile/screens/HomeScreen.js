@@ -33,8 +33,11 @@ import { fallbackEventLabel } from '../utils/eventLabel';
 
 /** Rows shown on the card (today first), so it stays small. */
 const ITEM_LIMIT = 3;
-/** A new request's dates are added a few seconds after saving; look again once while on Home. */
-const RECHECK_MS = 20000;
+/**
+ * A new request's dates are saved a few seconds after it is recorded, so look again a few times
+ * while Home is open (early first, then easing off).
+ */
+const RECHECK_AFTER_MS = [3000, 8000, 15000, 30000];
 
 const dayKeyOf = (event) => String(event.event_date || '').split('T')[0];
 
@@ -141,14 +144,14 @@ export default function HomeScreen({ navigation, onLogout }) {
     }
   }, []);
 
-  // Refresh on every visit (name changed in Account, a request just recorded), and look once
-  // more shortly after, since a new request's dates are filled in after it is saved.
+  // Refresh on every visit (name changed in Account, a request just recorded), and look again
+  // shortly after, since a new request's dates are filled in just after it is saved.
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();
       loadComingUp();
-      const recheck = setTimeout(loadComingUp, RECHECK_MS);
-      return () => clearTimeout(recheck);
+      const rechecks = RECHECK_AFTER_MS.map((ms) => setTimeout(loadComingUp, ms));
+      return () => rechecks.forEach(clearTimeout);
     }, [loadUserProfile, loadComingUp])
   );
 
@@ -250,13 +253,25 @@ export default function HomeScreen({ navigation, onLogout }) {
   const renderComingUp = () =>
     comingUp.length === 0 ? null : (
       <GlassSurface style={styles.comingUpCard}>
-        {comingUp.map((item, index) => {
+        <View style={styles.comingUpHeader}>
+          <Ionicons
+            name="calendar-outline"
+            size={14}
+            color={colors.primary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text style={styles.comingUpTitle} accessibilityRole="header">
+            Coming up
+          </Text>
+        </View>
+        {comingUp.map((item) => {
           const isRequest = item.kind === 'request';
           const isToday = item.day === 'Today';
           return (
             <TouchableOpacity
               key={item.key}
-              style={[styles.itemRow, index > 0 && styles.itemDivider]}
+              style={[styles.itemRow, styles.itemDivider]}
               activeOpacity={0.7}
               onPress={() =>
                 isRequest ? openPrayerRequest(item.event) : setReminderEditor({ reminder: item.reminder })
@@ -560,7 +575,21 @@ function createStyles(colors) {
   comingUpCard: {
     borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 4,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  comingUpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: 8,
+  },
+  comingUpTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: colors.primary,
   },
   itemRow: {
     flexDirection: 'row',
