@@ -113,9 +113,6 @@ export default function JournalScreen({ navigation }) {
           <Text style={styles.title} accessibilityRole="header">
             Prayer Journal
           </Text>
-          <Text style={styles.subtitle}>
-            A quiet place to reflect on your day, in your own words, at your own pace.
-          </Text>
         </View>
 
         <View style={styles.composeCard}>
@@ -214,7 +211,6 @@ function createStyles(colors) {
     scrollContent: { padding: 20, paddingBottom: 40 },
     header: { marginBottom: 20 },
     title: { fontSize: 32, fontWeight: 'bold', color: colors.textPrimary, letterSpacing: -0.5 },
-    subtitle: { fontSize: 15, color: colors.textSecondary, marginTop: 6, lineHeight: 21 },
     composeCard: { marginBottom: 28 },
     errorBanner: {
       flexDirection: 'row',
