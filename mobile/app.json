@@ -56,6 +56,9 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "ellamcmillan"
+    "owner": "tohim-team",
+    "updates": {
+      "url": "https://u.expo.dev/e497fc3e-76d2-4470-b503-f0c6e8094208"
+    }
   }
 }
