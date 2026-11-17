@@ -23,6 +23,7 @@ function classifyPrompt(params) {
   if (prompt.includes('daily reflection connector')) return 'journal';
   if (prompt.includes('entity-specific segments')) return 'entities';
   if (prompt.includes('extract information about a person')) return 'personInfo';
+  if (prompt.includes('short calendar label')) return 'eventLabel';
   // Checked before 'notes': event-summary prompts also include the shared "prayer journal" voice rules.
   if (prompt.includes('calendar event summary')) return 'eventSummary';
   if (prompt.includes('prayer journal')) return 'notes';
@@ -223,8 +224,8 @@ function installFakeRepo() {
       if (session) session.notes = notes;
       return session;
     },
-    async createCalendarEvent(userId, personId, sessionId, eventType, eventDate, summary) {
-      repo.calendarEvents.push({ userId, personId, sessionId, eventType, eventDate, summary });
+    async createCalendarEvent(userId, personId, sessionId, eventType, eventDate, summary, label = null) {
+      repo.calendarEvents.push({ userId, personId, sessionId, eventType, eventDate, summary, label });
     },
     async setPersonMetadata(userId, personId, key, value) {
       repo.metadata.push({ userId, personId, key, value });

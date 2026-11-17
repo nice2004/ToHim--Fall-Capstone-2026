@@ -942,15 +942,32 @@ async function getSessionById(userId, sessionId) {
   return result.rows[0] || null;
 }
 
-async function createCalendarEvent(userId, personId, sessionId, eventType, eventDate, summary = null) {
+let calendarLabelReadyPromise = null;
+
+// Short label for a calendar event ("Exam", "Mom's surgery") shown on Home's Today/Tomorrow card.
+// Added after the first release; older rows have NULL and the app derives a label from the summary.
+async function ensureCalendarLabelSchema() {
+  if (!calendarLabelReadyPromise) {
+    calendarLabelReadyPromise = pool
+      .query('ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS label TEXT')
+      .catch((err) => {
+        calendarLabelReadyPromise = null;
+        throw err;
+      });
+  }
+  return calendarLabelReadyPromise;
+}
+
+async function createCalendarEvent(userId, personId, sessionId, eventType, eventDate, summary = null, label = null) {
+  await ensureCalendarLabelSchema();
   try {
     const result = await pool.query(
       `
-      INSERT INTO calendar_events (user_id, person_id, session_id, event_type, event_date, summary)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO calendar_events (user_id, person_id, session_id, event_type, event_date, summary, label)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
       `,
-      [userId, personId, sessionId, eventType, eventDate, summary]
+      [userId, personId, sessionId, eventType, eventDate, summary, label]
     );
     return result.rows[0];
   } catch (err) {
@@ -958,11 +975,11 @@ async function createCalendarEvent(userId, personId, sessionId, eventType, event
     const nextId = await getNextId('calendar_events');
     const result = await pool.query(
       `
-      INSERT INTO calendar_events (id, user_id, person_id, session_id, event_type, event_date, summary)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO calendar_events (id, user_id, person_id, session_id, event_type, event_date, summary, label)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
       `,
-      [nextId, userId, personId, sessionId, eventType, eventDate, summary]
+      [nextId, userId, personId, sessionId, eventType, eventDate, summary, label]
     );
     return result.rows[0];
   }
@@ -977,8 +994,13 @@ async function updateCalendarEvent(userId, eventId, { eventDate, summary }) {
     values.push(eventDate);
   }
   if (summary !== undefined) {
-    fields.push(`summary = $${fields.length + 1}`);
+    await ensureCalendarLabelSchema();
     values.push(summary);
+    const p = `$${values.length}`;
+    fields.push(`summary = ${p}`);
+    // A rewritten summary makes the short label stale; clear it so the app derives a new one.
+    // (SET expressions see the row's old values, so this compares against the previous summary.)
+    fields.push(`label = CASE WHEN summary IS DISTINCT FROM ${p} THEN NULL ELSE label END`);
   }
   if (fields.length === 0) {
     throw new Error('No fields provided for update');
@@ -991,7 +1013,7 @@ async function updateCalendarEvent(userId, eventId, { eventDate, summary }) {
     `
     UPDATE calendar_events
     SET ${fields.join(', ')}
-    WHERE id = $${fields.length + 1} AND user_id = $${fields.length + 2}
+    WHERE id = $${values.length - 1} AND user_id = $${values.length}
     RETURNING *
     `,
     values
